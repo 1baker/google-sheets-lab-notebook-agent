@@ -942,7 +942,7 @@ SHEETS: tuple[SheetSpec, ...] = (
     ),
 )
 
-WORKBOOK_CONTRACT_VERSION = "0.3.0"
+WORKBOOK_CONTRACT_VERSION = "0.4.0"
 RUN_CONSOLE_SHEET = "Run Console"
 
 NUMBER_COLUMNS: dict[str, frozenset[str]] = {
@@ -1159,6 +1159,11 @@ def workbook_contract() -> dict[str, object]:
                 ),
                 "active_experiment_cell": "B3",
                 "preserve_user_cells": ["B3"],
+                "active_queue_anchor": "A30",
+                "active_queue_rule": (
+                    "status is planned or running, or status is needs_review "
+                    "and source_notebook_id is blank"
+                ),
             }
         ],
         "controlled_vocab": {

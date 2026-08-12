@@ -700,6 +700,66 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
     return rows
 
 
+def active_run_queue_formula(experiments_sheet_id: int) -> str:
+    """Return the spill formula that separates current work from imported history."""
+
+    next_action = (
+        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
+        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
+        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
+        'IF(id="","",IF(operator="","Assign operator",'
+        'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
+        'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
+        'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
+        'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
+        'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
+        'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
+        'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))'
+    )
+    completeness = (
+        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
+        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
+        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
+        'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
+        'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
+        'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
+        'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
+        'N(reviewer<>""))/10)))'
+    )
+    return (
+        '=IFERROR(SORT(FILTER({'
+        'IF(Experiments!$I$2:$I$1000="running","1 · RUNNING",'
+        'IF(Experiments!$I$2:$I$1000="planned","2 · PLANNED","3 · REVIEW")),'
+        'Experiments!$A$2:$A$1000,Experiments!$B$2:$B$1000,'
+        'Experiments!$I$2:$I$1000,'
+        'IF(Experiments!$H$2:$H$1000="","Unassigned",Experiments!$H$2:$H$1000),'
+        f'{next_action},{completeness},'
+        f'HYPERLINK("#gid={experiments_sheet_id}&range=A"&ROW(Experiments!$A$2:$A$1000),"Open →")'
+        '},Experiments!$A$2:$A$1000<>"",'
+        '((Experiments!$I$2:$I$1000="running")+'
+        '(Experiments!$I$2:$I$1000="planned")+'
+        '((Experiments!$I$2:$I$1000="needs_review")*'
+        '(Experiments!$L$2:$L$1000="")))>0),1,TRUE,3,FALSE),'
+        '"No current experiments")'
+    )
+
+
+def active_queue_summary_rows() -> list[list[Any]]:
+    return [
+        ["QUEUE SUMMARY", "COUNT"],
+        ["Current queue", '=COUNTIFS(Experiments!$I$2:$I$1000,"running")+COUNTIFS(Experiments!$I$2:$I$1000,"planned")+COUNTIFS(Experiments!$I$2:$I$1000,"needs_review",Experiments!$L$2:$L$1000,"")'],
+        ["Running", '=COUNTIF(Experiments!$I$2:$I$1000,"running")'],
+        ["Planned", '=COUNTIF(Experiments!$I$2:$I$1000,"planned")'],
+        ["Current review", '=COUNTIFS(Experiments!$I$2:$I$1000,"needs_review",Experiments!$L$2:$L$1000,"")'],
+        ["Imported history", '=COUNTIF(Experiments!$L$2:$L$1000,"<>")'],
+        ["History needing review", '=COUNTIFS(Experiments!$L$2:$L$1000,"<>",Experiments!$I$2:$I$1000,"needs_review")'],
+    ]
+
+
 def run_console_setup_requests(
     sheet_id: int,
     sheet_ids: dict[str, int],
@@ -768,6 +828,49 @@ def run_console_setup_requests(
                 },
             }
         },
+        {
+            "updateCells": {
+                "start": {"sheetId": sheet_id, "rowIndex": 27, "columnIndex": 0},
+                "rows": [
+                    {"values": [run_console_cell_data("ACTIVE RUN QUEUE")]},
+                    {
+                        "values": [
+                            run_console_cell_data(value)
+                            for value in (
+                                "PRIORITY",
+                                "EXPERIMENT",
+                                "DATE",
+                                "STATUS",
+                                "OWNER",
+                                "NEXT ACTION",
+                                "COMPLETE",
+                                "RECORD",
+                            )
+                        ]
+                    },
+                    {
+                        "values": [
+                            run_console_cell_data(
+                                active_run_queue_formula(sheet_ids["Experiments"])
+                            )
+                        ]
+                    },
+                ],
+                "fields": "userEnteredValue",
+            }
+        },
+        {
+            "updateCells": {
+                "start": {"sheetId": sheet_id, "rowIndex": 27, "columnIndex": 8},
+                "rows": [
+                    {
+                        "values": [run_console_cell_data(value) for value in row]
+                    }
+                    for row in active_queue_summary_rows()
+                ],
+                "fields": "userEnteredValue",
+            }
+        },
     ]
     if is_new:
         requests.insert(
@@ -793,7 +896,7 @@ def run_console_setup_requests(
     }
     requests.extend(
         [
-            repeat_cell_format_request(sheet_id, 0, 26, 0, 10, base_format),
+            repeat_cell_format_request(sheet_id, 0, 40, 0, 10, base_format),
             repeat_cell_format_request(
                 sheet_id,
                 0,
@@ -845,7 +948,7 @@ def run_console_setup_requests(
             ),
         ]
     )
-    for row_index in (4, 17):
+    for row_index in (4, 17, 27):
         requests.append(
             repeat_cell_format_request(
                 sheet_id,
@@ -869,6 +972,92 @@ def run_console_setup_requests(
             1,
             {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "textFormat": {"bold": True}},
         )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            29,
+            40,
+            0,
+            1,
+            {
+                "backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97},
+                "textFormat": {"bold": True},
+                "verticalAlignment": "MIDDLE",
+            },
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            29,
+            34,
+            8,
+            9,
+            {
+                "backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97},
+                "textFormat": {"bold": True},
+                "verticalAlignment": "MIDDLE",
+            },
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            28,
+            29,
+            0,
+            8,
+            {
+                "backgroundColor": {"red": 0.88, "green": 0.93, "blue": 0.96},
+                "textFormat": {"bold": True, "foregroundColor": {"red": 0.12, "green": 0.16, "blue": 0.20}},
+                "verticalAlignment": "MIDDLE",
+            },
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            28,
+            29,
+            8,
+            10,
+            {
+                "backgroundColor": {"red": 0.88, "green": 0.93, "blue": 0.96},
+                "textFormat": {"bold": True, "foregroundColor": {"red": 0.12, "green": 0.16, "blue": 0.20}},
+                "verticalAlignment": "MIDDLE",
+            },
+        )
+    )
+    requests.append(
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 29,
+                    "endRowIndex": 40,
+                    "startColumnIndex": 2,
+                    "endColumnIndex": 3,
+                },
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}}},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        }
+    )
+    requests.append(
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 29,
+                    "endRowIndex": 40,
+                    "startColumnIndex": 6,
+                    "endColumnIndex": 7,
+                },
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "PERCENT", "pattern": "0%"}}},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        }
     )
     requests.append(
         repeat_cell_format_request(
@@ -930,7 +1119,7 @@ def run_console_setup_requests(
             }
         }
     )
-    for index, width in enumerate((145, 285, 26, 26, 145, 95, 135, 26, 145, 95)):
+    for index, width in enumerate((145, 250, 90, 90, 130, 180, 90, 85, 130, 85)):
         requests.append(
             {
                 "updateDimensionProperties": {
@@ -940,7 +1129,7 @@ def run_console_setup_requests(
                 }
             }
         )
-    for row_index, height in ((0, 42), (1, 26), (2, 34), (4, 30), (17, 30), (24, 46)):
+    for row_index, height in ((0, 42), (1, 26), (2, 34), (4, 30), (17, 30), (24, 46), (27, 30), (28, 28)):
         requests.append(
             {
                 "updateDimensionProperties": {

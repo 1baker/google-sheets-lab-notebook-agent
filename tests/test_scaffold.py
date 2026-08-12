@@ -125,6 +125,18 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual("EP-001", console["B3"].value)
             self.assertTrue(str(console["B6"].value).startswith("=IF("))
             self.assertEqual("yyyy-mm-dd", console["B9"].number_format)
+            self.assertIn("FILTER", str(console["A30"].value))
+            self.assertIn("MAP(", str(console["A30"].value))
+            self.assertIn("Assign operator", str(console["A30"].value))
+            self.assertEqual(
+                str(console["A30"].value).count("("),
+                str(console["A30"].value).count(")"),
+            )
+            self.assertEqual("COMPLETE", console["G29"].value)
+            self.assertEqual("RECORD", console["H29"].value)
+            self.assertEqual("0%", console["G30"].number_format)
+            self.assertEqual("QUEUE SUMMARY", console["I28"].value)
+            self.assertIn("COUNTIFS", str(console["J29"].value))
             self.assertEqual("hidden", workbook["Plot Data"].sheet_state)
             self.assertEqual("visible", workbook["Plot Dashboard"].sheet_state)
             self.assertLessEqual(workbook["Agent Suggestions"].column_dimensions["M"].width, 40)

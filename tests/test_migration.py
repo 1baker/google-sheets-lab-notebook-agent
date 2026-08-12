@@ -21,9 +21,10 @@ class WorkbookMigrationTests(unittest.TestCase):
 
     def test_contract_adds_operational_lineage_and_qc_tabs(self) -> None:
         contract = workbook_contract()
-        self.assertEqual("0.3.0", contract["version"])
+        self.assertEqual("0.4.0", contract["version"])
         self.assertEqual(RUN_CONSOLE_SHEET, contract["views"][0]["name"])
         self.assertEqual("B3", contract["views"][0]["active_experiment_cell"])
+        self.assertEqual("A30", contract["views"][0]["active_queue_anchor"])
         names = {sheet["name"] for sheet in contract["sheets"]}
         self.assertTrue(
             {
@@ -97,6 +98,27 @@ class WorkbookMigrationTests(unittest.TestCase):
         ]
         self.assertTrue(console_formula_cells)
         self.assertTrue(any("Not recorded" in formula for formula in console_formula_cells))
+        self.assertTrue(any("FILTER" in formula for formula in console_formula_cells))
+        self.assertTrue(any("MAP(" in formula for formula in console_formula_cells))
+        self.assertTrue(any("Assign operator" in formula for formula in console_formula_cells))
+        self.assertTrue(any("COUNTIF" in formula for formula in console_formula_cells))
+        self.assertTrue(
+            all(formula.count("(") == formula.count(")") for formula in console_formula_cells)
+        )
+        self.assertTrue(any("source_notebook_id" not in formula and "$L$2:$L$1000" in formula for formula in console_formula_cells))
+        self.assertTrue(
+            any(
+                request.get("repeatCell", {}).get("range", {}).get("startColumnIndex") == 6
+                and request.get("repeatCell", {}).get("range", {}).get("endColumnIndex") == 7
+                and request.get("repeatCell", {})
+                .get("cell", {})
+                .get("userEnteredFormat", {})
+                .get("numberFormat", {})
+                .get("type")
+                == "PERCENT"
+                for request in requests
+            )
+        )
         self.assertFalse(any("autoResizeDimensions" in request for request in requests))
         self.assertTrue(
             any(
@@ -150,7 +172,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
                 (
                     "contract_version",
-                    "0.3.0",
+                    "0.4.0",
                     "Schema version currently applied to this workbook.",
                 ),
                 (
@@ -170,7 +192,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
             )
         ]
-        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.3.0"}]
+        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.4.0"}]
         rerun = google_contract_migration_requests(
             seeded_tables,
             self.sheet_ids,

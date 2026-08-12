@@ -155,6 +155,52 @@ def console_lookup(column_letter: str) -> str:
     )
 
 
+def local_active_run_queue_formula() -> str:
+    next_action = (
+        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
+        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
+        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
+        'IF(id="","",IF(operator="","Assign operator",'
+        'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
+        'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
+        'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
+        'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
+        'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
+        'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
+        'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))'
+    )
+    completeness = (
+        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
+        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
+        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
+        'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
+        'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
+        'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
+        'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
+        'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
+        'N(reviewer<>""))/10)))'
+    )
+    return (
+        '=IFERROR(SORT(FILTER({'
+        'IF(Experiments!$I$2:$I$1000="running","1 · RUNNING",'
+        'IF(Experiments!$I$2:$I$1000="planned","2 · PLANNED","3 · REVIEW")),'
+        'Experiments!$A$2:$A$1000,Experiments!$B$2:$B$1000,'
+        'Experiments!$I$2:$I$1000,'
+        'IF(Experiments!$H$2:$H$1000="","Unassigned",Experiments!$H$2:$H$1000),'
+        f'{next_action},{completeness},'
+        'HYPERLINK("#\'Experiments\'!A"&ROW(Experiments!$A$2:$A$1000),"Open →")},'
+        'Experiments!$A$2:$A$1000<>"",'
+        '((Experiments!$I$2:$I$1000="running")+'
+        '(Experiments!$I$2:$I$1000="planned")+'
+        '((Experiments!$I$2:$I$1000="needs_review")*'
+        '(Experiments!$L$2:$L$1000="")))>0),1,TRUE,3,FALSE),'
+        '"No current experiments")'
+    )
+
+
 def ensure_run_console(workbook: Workbook) -> None:
     is_new = RUN_CONSOLE_SHEET not in workbook.sheetnames
     selected_experiment = ""
@@ -167,7 +213,7 @@ def ensure_run_console(workbook: Workbook) -> None:
             workbook._sheets.remove(worksheet)
             workbook._sheets.insert(0, worksheet)
 
-    for row in worksheet.iter_rows(min_row=1, max_row=25, min_col=1, max_col=10):
+    for row in worksheet.iter_rows(min_row=1, max_row=40, min_col=1, max_col=10):
         for cell in row:
             if cell.coordinate != "B3":
                 cell.value = None
@@ -246,6 +292,30 @@ def ensure_run_console(workbook: Workbook) -> None:
         "B23": "Complete reviewer fields, resolve deviations, document the conclusion, and define the next experiment.",
         "A25": "GOOD RECORDS",
         "B25": "Use stable IDs. Record actual values, times, lots, and operators. Link raw evidence; never replace it with a summary.",
+        "A28": "ACTIVE RUN QUEUE",
+        "A29": "PRIORITY",
+        "B29": "EXPERIMENT",
+        "C29": "DATE",
+        "D29": "STATUS",
+        "E29": "OWNER",
+        "F29": "NEXT ACTION",
+        "G29": "COMPLETE",
+        "H29": "RECORD",
+        "A30": local_active_run_queue_formula(),
+        "I28": "QUEUE SUMMARY",
+        "J28": "COUNT",
+        "I29": "Current queue",
+        "J29": '=COUNTIFS(Experiments!$I$2:$I$1000,"running")+COUNTIFS(Experiments!$I$2:$I$1000,"planned")+COUNTIFS(Experiments!$I$2:$I$1000,"needs_review",Experiments!$L$2:$L$1000,"")',
+        "I30": "Running",
+        "J30": '=COUNTIF(Experiments!$I$2:$I$1000,"running")',
+        "I31": "Planned",
+        "J31": '=COUNTIF(Experiments!$I$2:$I$1000,"planned")',
+        "I32": "Current review",
+        "J32": '=COUNTIFS(Experiments!$I$2:$I$1000,"needs_review",Experiments!$L$2:$L$1000,"")',
+        "I33": "Imported history",
+        "J33": '=COUNTIF(Experiments!$L$2:$L$1000,"<>")',
+        "I34": "History needing review",
+        "J34": '=COUNTIFS(Experiments!$L$2:$L$1000,"<>",Experiments!$I$2:$I$1000,"needs_review")',
     }.items():
         worksheet[cell] = value
 
@@ -274,20 +344,20 @@ def ensure_run_console(workbook: Workbook) -> None:
     worksheet.sheet_view.showGridLines = False
     worksheet.sheet_properties.tabColor = sheet_tab_color(RUN_CONSOLE_SHEET)
     worksheet.column_dimensions["A"].width = 20
-    worksheet.column_dimensions["B"].width = 40
-    worksheet.column_dimensions["C"].width = 4
-    worksheet.column_dimensions["D"].width = 4
-    worksheet.column_dimensions["E"].width = 20
-    worksheet.column_dimensions["F"].width = 14
-    worksheet.column_dimensions["G"].width = 19
-    worksheet.column_dimensions["H"].width = 4
-    worksheet.column_dimensions["I"].width = 20
-    worksheet.column_dimensions["J"].width = 14
-    for row_number, height in ((1, 34), (2, 22), (3, 28), (5, 24), (18, 24), (25, 38)):
+    worksheet.column_dimensions["B"].width = 35
+    worksheet.column_dimensions["C"].width = 12
+    worksheet.column_dimensions["D"].width = 12
+    worksheet.column_dimensions["E"].width = 18
+    worksheet.column_dimensions["F"].width = 25
+    worksheet.column_dimensions["G"].width = 13
+    worksheet.column_dimensions["H"].width = 12
+    worksheet.column_dimensions["I"].width = 18
+    worksheet.column_dimensions["J"].width = 12
+    for row_number, height in ((1, 34), (2, 22), (3, 28), (5, 24), (18, 24), (25, 38), (28, 24), (29, 22)):
         worksheet.row_dimensions[row_number].height = height
 
     thin_gold = Side(style="thin", color="BD9729")
-    for row in worksheet.iter_rows(min_row=1, max_row=25, min_col=1, max_col=10):
+    for row in worksheet.iter_rows(min_row=1, max_row=40, min_col=1, max_col=10):
         for cell in row:
             cell.font = Font(name="Arial", size=10, color="1F2933")
             cell.alignment = Alignment(vertical="center", wrap_text=True)
@@ -303,7 +373,7 @@ def ensure_run_console(workbook: Workbook) -> None:
     worksheet["B3"].border = Border(
         left=thin_gold, right=thin_gold, top=thin_gold, bottom=thin_gold
     )
-    for row_number in (5, 18):
+    for row_number in (5, 18, 28):
         for cell in worksheet[row_number][:10]:
             cell.fill = PatternFill("solid", fgColor=CONSOLE_TEAL)
             cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
@@ -321,6 +391,22 @@ def ensure_run_console(workbook: Workbook) -> None:
         cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
     worksheet["F16"].number_format = "0%"
     worksheet["B9"].number_format = "yyyy-mm-dd"
+    for cell in worksheet[29][:8]:
+        cell.fill = PatternFill("solid", fgColor="DDEBF2")
+        cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
+    for cell in worksheet[28][8:10]:
+        cell.fill = PatternFill("solid", fgColor=CONSOLE_TEAL)
+        cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    for row_number in range(29, 35):
+        worksheet.cell(row=row_number, column=9).fill = PatternFill(
+            "solid", fgColor=CONSOLE_PALE_BLUE
+        )
+        worksheet.cell(row=row_number, column=9).font = Font(
+            name="Arial", size=10, bold=True, color="1F2933"
+        )
+    for row_number in range(30, 41):
+        worksheet.cell(row=row_number, column=3).number_format = "yyyy-mm-dd"
+        worksheet.cell(row=row_number, column=7).number_format = "0%"
 
     has_validation = any(
         "B3" in str(validation.sqref)

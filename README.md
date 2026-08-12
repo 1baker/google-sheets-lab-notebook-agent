@@ -45,7 +45,11 @@ automation.
 
 - `Run Console`: the scientist-facing front door. Select one experiment to see
   its objective and next step, assess operator/protocol/equipment/data/review
-  readiness, and jump directly to the relevant logging table.
+  readiness, work from a current-run queue, and jump directly to the relevant
+  logging table. The queue always includes planned and running experiments; it
+  includes needs-review records only when they are native/current rather than
+  imported history. Each queue row calculates a ten-point completeness score
+  and names the first missing operational action.
 - `Master Reagents`: canonical inventory and physical properties such as role,
   molecular weight, density, supplier, lot, hazards, and notes.
 - `Experiments`: one row per planned or completed experiment.
@@ -93,7 +97,7 @@ Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
 
-The current workbook contract is `0.3.0`. `google-setup-live` is an idempotent
+The current workbook contract is `0.4.0`. `google-setup-live` is an idempotent
 migration: it creates or refreshes the Run Console, preserves its active
 experiment selection, creates missing tabs, appends missing controlled
 vocabulary and configuration rows, records contract metadata and an audit
