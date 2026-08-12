@@ -59,6 +59,33 @@ FORMULATION_ROLES = (
     "additive",
 )
 
+BATCH_STAGES = (
+    "seed",
+    "core",
+    "shell",
+    "functional_shell",
+    "workup",
+)
+
+BATCH_CHARGE_TYPES = (
+    "pre_reactor",
+    "monomer_pre_emulsion",
+    "aqueous_pre_emulsion",
+    "initiator_shot",
+    "initiator_feed",
+    "redox_pair",
+    "chase",
+    "adjustment",
+    "other",
+)
+
+BATCH_CHARGE_STATUS = (
+    "planned",
+    "prepared",
+    "charged",
+    "skipped",
+)
+
 EXPERIMENT_STATUS = (
     "planned",
     "running",
@@ -217,6 +244,12 @@ CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
         "inventory_status": INVENTORY_STATUS,
     },
     "Experiments": {"process_type": PROCESS_TYPES, "status": EXPERIMENT_STATUS},
+    "Batch Builder": {
+        "stage": BATCH_STAGES,
+        "charge_type": BATCH_CHARGE_TYPES,
+        "target_role": FORMULATION_ROLES,
+        "charge_status": BATCH_CHARGE_STATUS,
+    },
     "Daily Log": {"process_stage": PROCESS_STAGES},
     "Formulations": {"target_role": FORMULATION_ROLES},
     "Results": {
@@ -374,6 +407,60 @@ SHEETS: tuple[SheetSpec, ...] = (
                 "",
                 "",
                 "",
+            ),
+        ),
+    ),
+    SheetSpec(
+        name="Batch Builder",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("charge_id", "Stable charge-row ID such as EP-001-CHG-001.", True),
+            Column("stage", "Seed, core, shell, functional shell, or workup stage.", True),
+            Column("charge_type", "Where or how this material is charged.", True),
+            Column("target_role", "Scientific role of the material in this stage.", True),
+            Column("feed_order", "Planned order of addition within the experiment."),
+            Column("reagent_id", "Reagent ID from Master Reagents.", True),
+            Column("material_name", "Calculated material name from Master Reagents."),
+            Column("parts_per_hundred_monomer", "Input parts per hundred monomer when scaling by PHR."),
+            Column("stage_monomer_basis_g", "Input monomer basis for this stage in grams."),
+            Column("direct_mass_g", "Input planned mass directly when PHR scaling is not used."),
+            Column("planned_mass_g", "Calculated direct mass or PHR times stage basis divided by 100."),
+            Column("stock_active_fraction", "Input active fraction of the supplied stock from 0 to 1."),
+            Column("active_mass_g", "Calculated active-material mass."),
+            Column("density_override_g_mL", "Optional density override for this charge."),
+            Column("density_g_mL", "Calculated override or Master Reagents density."),
+            Column("planned_volume_mL", "Calculated planned mass divided by density."),
+            Column("actual_mass_g", "Input actual mass charged."),
+            Column("mass_variance_g", "Calculated actual mass minus planned mass."),
+            Column("actual_volume_mL", "Calculated actual mass divided by density."),
+            Column("feed_start_min", "Input elapsed feed start time in minutes."),
+            Column("feed_duration_min", "Input feed duration in minutes."),
+            Column("feed_rate_mL_min", "Calculated planned volume divided by feed duration."),
+            Column("target_temperature_C", "Input target reactor temperature for the charge."),
+            Column("lot", "Input reagent lot used."),
+            Column("recorded_by", "Scientist who prepared or charged the material."),
+            Column("recorded_at", "Timestamp for the charge record."),
+            Column("charge_status", "Planned, prepared, charged, or skipped.", True),
+            Column("notes", "Charge preparation, addition, or deviation notes."),
+        ),
+        example_rows=(
+            (
+                "EP-001", "EP-001-CHG-001", "core", "monomer_pre_emulsion",
+                "core_monomer", 1, "M-SKA", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", 0, 180, "", 70, "", "",
+                "", "planned", "Enter direct mass, or enter PHR plus stage monomer basis.",
+            ),
+            (
+                "EP-001", "EP-001-CHG-002", "core", "initiator_feed",
+                "initiator", 2, "I-APS", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", 0, 210, "", 70, "", "",
+                "", "planned", "Record the stock fraction when using a solution.",
+            ),
+            (
+                "EP-001", "EP-001-CHG-003", "core", "aqueous_pre_emulsion",
+                "surfactant", 3, "S-SDS", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", "", "", "", 70, "", "",
+                "", "planned", "Enter the planned quantity and actual charge at the bench.",
             ),
         ),
     ),
@@ -723,6 +810,9 @@ SHEETS: tuple[SheetSpec, ...] = (
         )
         + tuple(("reagent_category", value, "Master Reagents category.") for value in REAGENT_CATEGORIES)
         + tuple(("formulation_role", value, "Formulations target role.") for value in FORMULATION_ROLES)
+        + tuple(("batch_stage", value, "Batch Builder stage.") for value in BATCH_STAGES)
+        + tuple(("batch_charge_type", value, "Batch Builder charge type.") for value in BATCH_CHARGE_TYPES)
+        + tuple(("batch_charge_status", value, "Batch Builder charge status.") for value in BATCH_CHARGE_STATUS)
         + tuple(("experiment_status", value, "Experiments status.") for value in EXPERIMENT_STATUS)
         + tuple(("process_stage", value, "Daily Log process stage.") for value in PROCESS_STAGES)
         + tuple(("result_quality_flag", value, "Results quality flag.") for value in RESULT_QUALITY_FLAGS)
@@ -942,7 +1032,7 @@ SHEETS: tuple[SheetSpec, ...] = (
     ),
 )
 
-WORKBOOK_CONTRACT_VERSION = "0.4.0"
+WORKBOOK_CONTRACT_VERSION = "0.5.0"
 RUN_CONSOLE_SHEET = "Run Console"
 
 NUMBER_COLUMNS: dict[str, frozenset[str]] = {
@@ -982,6 +1072,27 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
             "actual_mass_g",
             "mass_variance_g",
             "actual_volume_mL",
+        }
+    ),
+    "Batch Builder": frozenset(
+        {
+            "feed_order",
+            "parts_per_hundred_monomer",
+            "stage_monomer_basis_g",
+            "direct_mass_g",
+            "planned_mass_g",
+            "stock_active_fraction",
+            "active_mass_g",
+            "density_override_g_mL",
+            "density_g_mL",
+            "planned_volume_mL",
+            "actual_mass_g",
+            "mass_variance_g",
+            "actual_volume_mL",
+            "feed_start_min",
+            "feed_duration_min",
+            "feed_rate_mL_min",
+            "target_temperature_C",
         }
     ),
     "Results": frozenset(
@@ -1083,6 +1194,7 @@ DATETIME_COLUMNS: dict[str, frozenset[str]] = {
     ),
     "Daily Log": frozenset({"timestamp"}),
     "Formulations": frozenset({"recorded_at"}),
+    "Batch Builder": frozenset({"recorded_at"}),
     "Results": frozenset({"measured_at", "reviewed_at"}),
     "Agent Suggestions": frozenset({"created_at"}),
     "Daily Reviews": frozenset({"created_at"}),
@@ -1160,6 +1272,7 @@ def workbook_contract() -> dict[str, object]:
                 "active_experiment_cell": "B3",
                 "preserve_user_cells": ["B3"],
                 "active_queue_anchor": "A30",
+                "batch_entry_sheet": "Batch Builder",
                 "active_queue_rule": (
                     "status is planned or running, or status is needs_review "
                     "and source_notebook_id is blank"
@@ -1170,6 +1283,9 @@ def workbook_contract() -> dict[str, object]:
             "process_type": list(PROCESS_TYPES),
             "reagent_category": list(REAGENT_CATEGORIES),
             "formulation_role": list(FORMULATION_ROLES),
+            "batch_stage": list(BATCH_STAGES),
+            "batch_charge_type": list(BATCH_CHARGE_TYPES),
+            "batch_charge_status": list(BATCH_CHARGE_STATUS),
             "experiment_status": list(EXPERIMENT_STATUS),
             "process_stage": list(PROCESS_STAGES),
             "result_quality_flag": list(RESULT_QUALITY_FLAGS),

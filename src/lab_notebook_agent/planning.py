@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .batch_builder import formulation_rows_from_tables
 from .material_scaffold import formulation_key
 from .materials import calculate_formulation_row, nonblank, numeric_value
 from .sheets import append_rows_to_workbook, update_workbook_rows_by_key
@@ -27,7 +28,7 @@ def build_plan_materialization_report(
         if row.get("experiment_id")
     }
     existing_result_keys = {result_row_key(row) for row in tables.get("Results", [])}
-    existing_formulation_keys = {formulation_key(row) for row in tables.get("Formulations", [])}
+    existing_formulation_keys = {formulation_key(row) for row in formulation_rows_from_tables(tables)}
     reagent_lookup = master_reagent_lookup(tables)
     runs = []
 

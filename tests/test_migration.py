@@ -21,7 +21,7 @@ class WorkbookMigrationTests(unittest.TestCase):
 
     def test_contract_adds_operational_lineage_and_qc_tabs(self) -> None:
         contract = workbook_contract()
-        self.assertEqual("0.4.0", contract["version"])
+        self.assertEqual("0.5.0", contract["version"])
         self.assertEqual(RUN_CONSOLE_SHEET, contract["views"][0]["name"])
         self.assertEqual("B3", contract["views"][0]["active_experiment_cell"])
         self.assertEqual("A30", contract["views"][0]["active_queue_anchor"])
@@ -30,6 +30,7 @@ class WorkbookMigrationTests(unittest.TestCase):
             {
                 "Workbook Metadata",
                 "Run Capture Plan",
+                "Batch Builder",
                 "Samples",
                 "Equipment",
                 "Protocols",
@@ -172,7 +173,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
                 (
                     "contract_version",
-                    "0.4.0",
+                    "0.5.0",
                     "Schema version currently applied to this workbook.",
                 ),
                 (
@@ -192,7 +193,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
             )
         ]
-        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.4.0"}]
+        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.5.0"}]
         rerun = google_contract_migration_requests(
             seeded_tables,
             self.sheet_ids,

@@ -9,6 +9,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from .batch_builder import BATCH_BUILDER_FORMULA_COLUMNS, excel_batch_builder_formula
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
     RUN_CONSOLE_SHEET,
@@ -36,13 +37,14 @@ TECHNICAL_SHEETS = frozenset(
         "Agent Config",
         "Workbook Metadata",
         "Audit Log",
+        "Formulations",
     }
 )
 CORE_ENTRY_SHEETS = frozenset(
     {
         "Experiments",
+        "Batch Builder",
         "Daily Log",
-        "Formulations",
         "Results",
         "Run Capture Plan",
         "Samples",
@@ -58,6 +60,7 @@ REFERENCE_SHEETS = frozenset(
 def freeze_pane_for_sheet(sheet_name: str) -> str:
     if sheet_name in {
         "Daily Log",
+        "Batch Builder",
         "Formulations",
         "Results",
         "Run Capture Plan",
@@ -162,26 +165,28 @@ def local_active_run_queue_formula() -> str:
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",IF(operator="","Assign operator",'
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
+        'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
         'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
         'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
-        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
     )
     completeness = (
         'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
         'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
+        'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
         'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
         'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
-        'N(reviewer<>""))/10)))'
+        'N(reviewer<>""))/11)))'
     )
     return (
         '=IFERROR(SORT(FILTER({'
@@ -255,30 +260,33 @@ def ensure_run_console(workbook: Workbook) -> None:
         "E8": "Equipment",
         "F8": console_lookup("R"),
         "G8": '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))',
-        "E9": "Run steps",
-        "F9": '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))',
-        "G9": '=IF($B$3="","",IF(F9>0,"✓ Ready","⚠ Missing"))',
-        "E10": "Observations",
-        "F10": '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))',
-        "G10": '=IF($B$3="","",IF(F10>0,"✓ Logged","⚠ Missing"))',
-        "E11": "Samples",
-        "F11": '=IF($B$3="","",COUNTIF(Samples!$B$2:$B$1000,$B$3))',
+        "E9": "Batch charges",
+        "F9": '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))',
+        "G9": '=IF($B$3="","",IF(F9>0,"✓ Quantified","⚠ Missing"))',
+        "E10": "Run steps",
+        "F10": '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))',
+        "G10": '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))',
+        "E11": "Observations",
+        "F11": '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))',
         "G11": '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))',
-        "E12": "Results",
-        "F12": '=IF($B$3="","",COUNTIF(Results!$A$2:$A$1000,$B$3))',
+        "E12": "Samples",
+        "F12": '=IF($B$3="","",COUNTIF(Samples!$B$2:$B$1000,$B$3))',
         "G12": '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))',
-        "E13": "Raw files",
-        "F13": '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))',
-        "G13": '=IF($B$3="","",IF(F13>0,"✓ Linked","⚠ Missing"))',
-        "E14": "Open deviations",
-        "F14": '=IF($B$3="","",COUNTIFS(Deviations!$B$2:$B$1000,$B$3,Deviations!$K$2:$K$1000,"<>closed"))',
-        "G14": '=IF($B$3="","",IF(F14=0,"✓ Clear","⚠ Attention"))',
-        "E15": "Reviewer",
-        "F15": console_lookup("U"),
-        "G15": '=IF($B$3="","",IF(F15<>"Not recorded","✓ Ready","⚠ Missing"))',
-        "E16": "Completeness",
-        "F16": '=IF($B$3="","",COUNTIF($G$6:$G$15,"✓*")/10)',
-        "G16": '=IF($B$3="","",IF(F16=1,"✓ Ready to close",TEXT(F16,"0%")&" complete"))',
+        "E13": "Results",
+        "F13": '=IF($B$3="","",COUNTIF(Results!$A$2:$A$1000,$B$3))',
+        "G13": '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))',
+        "E14": "Raw files",
+        "F14": '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))',
+        "G14": '=IF($B$3="","",IF(F14>0,"✓ Linked","⚠ Missing"))',
+        "E15": "Open deviations",
+        "F15": '=IF($B$3="","",COUNTIFS(Deviations!$B$2:$B$1000,$B$3,Deviations!$K$2:$K$1000,"<>closed"))',
+        "G15": '=IF($B$3="","",IF(F15=0,"✓ Clear","⚠ Attention"))',
+        "E16": "Reviewer",
+        "F16": console_lookup("U"),
+        "G16": '=IF($B$3="","",IF(F16<>"Not recorded","✓ Ready","⚠ Missing"))',
+        "E17": "Completeness",
+        "F17": '=IF($B$3="","",COUNTIF($G$6:$G$16,"✓*")/11)',
+        "G17": '=IF($B$3="","",IF(F17=1,"✓ Ready to close",TEXT(F17,"0%")&" complete"))',
         "A18": "BENCH WORKFLOW",
         "A19": "1 · PLAN",
         "B19": "Set protocol, equipment, run steps, acceptance criteria, and sample plan before starting.",
@@ -324,7 +332,7 @@ def ensure_run_console(workbook: Workbook) -> None:
             ("Experiment record", "Experiments"),
             ("Run plan", "Run Capture Plan"),
             ("Bench observations", "Daily Log"),
-            ("Formulation", "Formulations"),
+            ("Batch quantities", "Batch Builder"),
             ("Samples", "Samples"),
             ("Results", "Results"),
             ("Raw files", "Raw Data Files"),
@@ -377,7 +385,7 @@ def ensure_run_console(workbook: Workbook) -> None:
         for cell in worksheet[row_number][:10]:
             cell.fill = PatternFill("solid", fgColor=CONSOLE_TEAL)
             cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-    for row_number in range(6, 17):
+    for row_number in range(6, 18):
         for column in (1, 5):
             cell = worksheet.cell(row=row_number, column=column)
             cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
@@ -389,7 +397,7 @@ def ensure_run_console(workbook: Workbook) -> None:
     for cell in worksheet[25][:10]:
         cell.fill = PatternFill("solid", fgColor=CONSOLE_INPUT)
         cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
-    worksheet["F16"].number_format = "0%"
+    worksheet["F17"].number_format = "0%"
     worksheet["B9"].number_format = "yyyy-mm-dd"
     for cell in worksheet[29][:8]:
         cell.fill = PatternFill("solid", fgColor="DDEBF2")
@@ -426,7 +434,7 @@ def ensure_run_console(workbook: Workbook) -> None:
         validation.add("B3")
     if is_new:
         worksheet.conditional_formatting.add(
-            "G6:G16",
+            "G6:G17",
             FormulaRule(
                 formula=['LEFT(G6,1)="✓"'],
                 fill=PatternFill("solid", fgColor="C6E0B4"),
@@ -434,7 +442,7 @@ def ensure_run_console(workbook: Workbook) -> None:
             ),
         )
         worksheet.conditional_formatting.add(
-            "G6:G16",
+            "G6:G17",
             FormulaRule(
                 formula=['LEFT(G6,1)="⚠"'],
                 fill=PatternFill("solid", fgColor="FFE699"),
@@ -460,6 +468,59 @@ def apply_workbook_presentation(workbook: Workbook) -> None:
             cell.fill = HEADER_FILL
             cell.font = HEADER_FONT
             cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ensure_batch_builder(workbook)
+
+
+def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
+    """Install scientist-facing quantity formulas and visual input cues."""
+
+    if "Batch Builder" not in workbook.sheetnames:
+        return
+    worksheet = workbook["Batch Builder"]
+    headers = [str(cell.value or "") for cell in worksheet[1]]
+    formula_columns = {
+        header: headers.index(header) + 1 for header in BATCH_BUILDER_FORMULA_COLUMNS
+    }
+    for row_number in range(2, max(2, end_row) + 1):
+        for header, column_number in formula_columns.items():
+            cell = worksheet.cell(row=row_number, column=column_number)
+            cell.value = excel_batch_builder_formula(header, row_number)
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
+            cell.font = Font(name="Arial", size=10, color="1F2933")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    input_headers = (
+        "experiment_id",
+        "charge_id",
+        "stage",
+        "charge_type",
+        "target_role",
+        "feed_order",
+        "reagent_id",
+        "parts_per_hundred_monomer",
+        "stage_monomer_basis_g",
+        "direct_mass_g",
+        "stock_active_fraction",
+        "density_override_g_mL",
+        "actual_mass_g",
+        "feed_start_min",
+        "feed_duration_min",
+        "target_temperature_C",
+        "lot",
+        "recorded_by",
+        "recorded_at",
+        "charge_status",
+        "notes",
+    )
+    for header in input_headers:
+        column_number = headers.index(header) + 1
+        for row_number in range(2, max(2, end_row) + 1):
+            worksheet.cell(row=row_number, column=column_number).fill = PatternFill(
+                "solid", fgColor="FFF9E3"
+            )
+    worksheet.freeze_panes = "C2"
+    worksheet.auto_filter.ref = f"A1:AC{max(2, end_row)}"
+    worksheet.row_dimensions[1].height = 42
 
 
 def build_workbook(include_examples: bool = True) -> Workbook:
@@ -528,6 +589,21 @@ def add_validations(workbook: Workbook) -> None:
             worksheet.add_data_validation(validation)
             validation.add(f"{column_letter}2:{column_letter}1000")
 
+    batch_builder = workbook["Batch Builder"]
+    batch_headers = [cell.value for cell in batch_builder[1]]
+    for field, source_range, prompt in (
+        ("experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an experiment ID."),
+        ("reagent_id", "'Master Reagents'!$A$2:$A$1000", "Choose a reagent ID."),
+    ):
+        column_letter = get_column_letter(batch_headers.index(field) + 1)
+        validation = DataValidation(type="list", formula1=source_range, allow_blank=True)
+        validation.error = prompt
+        validation.errorTitle = "Unknown ID"
+        validation.prompt = prompt
+        validation.promptTitle = field.replace("_", " ").title()
+        batch_builder.add_data_validation(validation)
+        validation.add(f"{column_letter}2:{column_letter}1000")
+
 
 def add_workflow_note(workbook: Workbook) -> None:
     worksheet = workbook["Agent Config"]
@@ -536,7 +612,7 @@ def add_workflow_note(workbook: Workbook) -> None:
             "workflow_note",
             (
                 "Enter reagents in Master Reagents, one experiment row in "
-                "Experiments, formulation rows in Formulations, observations "
+                "Experiments, staged quantities in Batch Builder, observations "
                 "in Daily Log, and measurements in Results."
             ),
             (
@@ -550,7 +626,7 @@ def add_workflow_note(workbook: Workbook) -> None:
         cell.alignment = Alignment(wrap_text=True, vertical="top")
     worksheet["A1"].comment = Comment(
         "Enter reagents in Master Reagents, one experiment row in Experiments, "
-        "formulation rows in Formulations, observations in Daily Log, and "
+        "staged quantities in Batch Builder, observations in Daily Log, and "
         "measurements in Results. Agent Suggestions should be treated as drafts "
         "until reviewed by a human.",
         "lab-notebook-agent",

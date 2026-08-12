@@ -48,13 +48,24 @@ automation.
   readiness, work from a current-run queue, and jump directly to the relevant
   logging table. The queue always includes planned and running experiments; it
   includes needs-review records only when they are native/current rather than
-  imported history. Each queue row calculates a ten-point completeness score
+  imported history. Each queue row calculates an eleven-point completeness score
   and names the first missing operational action.
+- `Batch Builder`: the primary scientist-facing quantity entry sheet, modeled
+  on the staged charge tables in the historical Emulsion Polymerization
+  notebook. Enter one row per seed/core/shell/workup charge. Use either a direct
+  planned mass or parts-per-hundred-monomer plus a stage monomer basis; the
+  sheet calculates planned mass, active mass, density-backed volume, actual
+  variance, actual volume, and feed rate. Pale-yellow cells are inputs and
+  pale-blue cells are calculated. Reagent names and default densities come from
+  `Master Reagents`; actual mass, lot, operator, timestamp, and charge status
+  make the table usable at the bench.
 - `Master Reagents`: canonical inventory and physical properties such as role,
   molecular weight, density, supplier, lot, hazards, and notes.
 - `Experiments`: one row per planned or completed experiment.
 - `Daily Log`: timestamped observations and structured run/test measurements.
-- `Formulations`: reagent amounts, phases, roles, feed timing, and notes.
+- `Formulations`: hidden normalized/legacy formulation rows retained for agent
+  and integration compatibility. Scientists should enter new quantities in
+  `Batch Builder`.
 - `Results`: measurements and interpretations.
 - `Literature Evidence`: rows exported or summarized from LitScout.
 - `Agent Suggestions`: recommendations the agent proposes back to the user,
@@ -97,9 +108,9 @@ Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
 
-The current workbook contract is `0.4.0`. `google-setup-live` is an idempotent
+The current workbook contract is `0.5.0`. `google-setup-live` is an idempotent
 migration: it creates or refreshes the Run Console, preserves its active
-experiment selection, creates missing tabs, appends missing controlled
+experiment selection, creates the Batch Builder and other missing tabs, appends missing controlled
 vocabulary and configuration rows, records contract metadata and an audit
 event, repairs parseable numeric/date cells to native Google values, adds header
 notes and number formats, and applies QC/deviation status coloring. It uses

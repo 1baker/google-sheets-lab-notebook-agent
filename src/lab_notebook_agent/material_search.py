@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .batch_builder import formulation_rows_from_tables
 from .materials import nonblank, role_specs_for_process
 from .search import LocalSemanticIndex, flatten_text, tokenize
 
@@ -20,7 +21,7 @@ def build_process_material_search_report(
     process_knowledge = [row for row in tables.get("Process Knowledge", []) if isinstance(row, dict)]
     formulation = [
         row
-        for row in tables.get("Formulations", [])
+        for row in formulation_rows_from_tables(tables)
         if isinstance(row, dict) and experiment_id and str(row.get("experiment_id", "")) == experiment_id
     ]
     reagent_records = master_reagent_records(master_reagents)

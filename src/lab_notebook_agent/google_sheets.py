@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from .agent import suggestion_to_workbook_row
+from .batch_builder import (
+    BATCH_BUILDER_FORMULA_COLUMNS,
+    formulation_rows_from_tables,
+    google_batch_builder_array_formulas,
+)
 from .material_scaffold import formulation_key
 from .planning import result_row_key
 from .schema import (
@@ -37,13 +42,14 @@ TECHNICAL_SHEETS = frozenset(
         "Agent Config",
         "Workbook Metadata",
         "Audit Log",
+        "Formulations",
     }
 )
 CORE_ENTRY_SHEETS = frozenset(
     {
         "Experiments",
+        "Batch Builder",
         "Daily Log",
-        "Formulations",
         "Results",
         "Run Capture Plan",
         "Samples",
@@ -55,6 +61,7 @@ REFERENCE_SHEETS = frozenset(
     {"Master Reagents", "Equipment", "Protocols", "Specifications"}
 )
 OPTIONAL_EXTENSION_SHEETS = {
+    "Batch Builder",
     "Project Notebook Records",
     "Source Sync",
     "Plot Data",
@@ -324,6 +331,276 @@ def google_setup_requests_from_metadata(
                         validation_end_row=validation_end_row,
                     )
                 )
+        if spec.name == "Batch Builder":
+            requests.extend(
+                batch_builder_setup_requests(
+                    sheet_id,
+                    sheet_ids,
+                    validation_end_row=validation_end_row,
+                    is_new=spec.name not in existing_sheet_ids,
+                )
+            )
+    return requests
+
+
+def google_scientist_batch_builder_upgrade_requests(
+    metadata: dict[str, Any],
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    """Return the bounded 0.5 scientist-interface upgrade for an existing workbook."""
+
+    validation_end_row = max(2, validation_end_row)
+    existing_sheet_ids = sheet_ids_from_metadata_payload(metadata)
+    properties_by_title = sheet_properties_from_metadata_payload(metadata)
+    generated = generated_sheet_ids_for_missing(existing_sheet_ids)
+    sheet_ids = {**existing_sheet_ids, **generated}
+    batch_sheet_id = sheet_ids["Batch Builder"]
+    is_new = "Batch Builder" not in existing_sheet_ids
+    requests: list[dict[str, Any]] = []
+    if is_new:
+        requests.append(
+            add_sheet_request(
+                "Batch Builder",
+                batch_sheet_id,
+                minimum_grid_column_count("Batch Builder"),
+                validation_end_row,
+                index=3,
+            )
+        )
+    requests.extend(
+        [
+            sheet_grid_setup_request(
+                "Batch Builder",
+                batch_sheet_id,
+                minimum_grid_column_count("Batch Builder"),
+                properties_by_title.get("Batch Builder", {}),
+                validation_end_row,
+            ),
+            header_update_request("Batch Builder", sheet_ids),
+            header_format_request("Batch Builder", sheet_ids),
+            *column_number_format_requests(
+                "Batch Builder", sheet_ids, validation_end_row
+            ),
+            basic_filter_request("Batch Builder", sheet_ids, validation_end_row),
+            *column_width_requests("Batch Builder", sheet_ids),
+            header_row_height_request("Batch Builder", sheet_ids),
+        ]
+    )
+    for field, allowed_values in CONTROLLED_VOCAB_VALIDATIONS["Batch Builder"].items():
+        requests.append(
+            data_validation_request(
+                "Batch Builder",
+                field,
+                allowed_values,
+                sheet_ids,
+                validation_end_row=validation_end_row,
+            )
+        )
+    requests.extend(
+        batch_builder_setup_requests(
+            batch_sheet_id,
+            sheet_ids,
+            validation_end_row=validation_end_row,
+            is_new=is_new,
+        )
+    )
+    if is_new:
+        for operator, color in (
+            ("NUMBER_GREATER_THAN_EQ", {"red": 0.85, "green": 0.94, "blue": 0.85}),
+            ("NUMBER_LESS", {"red": 1.0, "green": 0.95, "blue": 0.80}),
+        ):
+            requests.append(
+                {
+                    "addConditionalFormatRule": {
+                        "index": 0,
+                        "rule": {
+                            "ranges": [
+                                {
+                                    "sheetId": sheet_ids[RUN_CONSOLE_SHEET],
+                                    "startRowIndex": 16,
+                                    "endRowIndex": 17,
+                                    "startColumnIndex": 6,
+                                    "endColumnIndex": 7,
+                                }
+                            ],
+                            "booleanRule": {
+                                "condition": {
+                                    "type": operator,
+                                    "values": [{"userEnteredValue": "1"}],
+                                },
+                                "format": {"backgroundColor": color},
+                            },
+                        },
+                    }
+                }
+            )
+    if "Formulations" in existing_sheet_ids:
+        requests.append(
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": existing_sheet_ids["Formulations"],
+                        "hidden": True,
+                    },
+                    "fields": "hidden",
+                }
+            }
+        )
+    requests.extend(
+        run_console_setup_requests(
+            sheet_ids[RUN_CONSOLE_SHEET],
+            sheet_ids,
+            is_new=False,
+        )
+    )
+    return requests
+
+
+def batch_builder_setup_requests(
+    sheet_id: int,
+    sheet_ids: dict[str, int],
+    *,
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+    is_new: bool = False,
+) -> list[dict[str, Any]]:
+    """Create the scientist-facing staged charge and quantity workspace."""
+
+    headers = list(sheet_by_name("Batch Builder").headers)
+    formulas = google_batch_builder_array_formulas(validation_end_row)
+    calculated = set(BATCH_BUILDER_FORMULA_COLUMNS)
+    requests: list[dict[str, Any]] = []
+    if is_new:
+        spec = sheet_by_name("Batch Builder")
+        requests.append(
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet_id, "rowIndex": 1, "columnIndex": 0},
+                    "rows": [
+                        {
+                            "values": [
+                                google_cell_data(
+                                    values[index] if index < len(values) else "",
+                                    data_type=column_data_type("Batch Builder", column.name),
+                                )
+                                for index, column in enumerate(spec.columns)
+                            ]
+                        }
+                        for values in spec.example_rows
+                    ],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+    for header, formula in formulas.items():
+        column_index = headers.index(header)
+        requests.append(
+            {
+                "updateCells": {
+                    "start": {
+                        "sheetId": sheet_id,
+                        "rowIndex": 1,
+                        "columnIndex": column_index,
+                    },
+                    "rows": [
+                        {"values": [{"userEnteredValue": {"formulaValue": formula}}]}
+                    ],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+
+    for column_index, header in enumerate(headers):
+        color = (
+            {"red": 0.92, "green": 0.96, "blue": 0.97}
+            if header in calculated
+            else {"red": 1.0, "green": 0.98, "blue": 0.89}
+        )
+        requests.append(
+            repeat_cell_format_request(
+                sheet_id,
+                1,
+                validation_end_row,
+                column_index,
+                column_index + 1,
+                {
+                    "backgroundColor": color,
+                    "verticalAlignment": "MIDDLE",
+                    "wrapStrategy": "WRAP",
+                },
+            )
+        )
+
+    for field, source_sheet, source_column, message in (
+        ("experiment_id", "Experiments", "A", "Choose an experiment ID."),
+        ("reagent_id", "Master Reagents", "A", "Choose a reagent ID."),
+    ):
+        column_index = headers.index(field)
+        requests.append(
+            {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 1,
+                        "endRowIndex": validation_end_row,
+                        "startColumnIndex": column_index,
+                        "endColumnIndex": column_index + 1,
+                    },
+                    "rule": {
+                        "condition": {
+                            "type": "ONE_OF_RANGE",
+                            "values": [
+                                {
+                                    "userEnteredValue": (
+                                        f"='{source_sheet}'!${source_column}$2:"
+                                        f"${source_column}$1000"
+                                    )
+                                }
+                            ],
+                        },
+                        "inputMessage": message,
+                        "strict": True,
+                        "showCustomUi": True,
+                    },
+                }
+            }
+        )
+
+    if is_new:
+        variance_column = headers.index("mass_variance_g")
+        requests.append(
+            {
+                "addConditionalFormatRule": {
+                "index": 0,
+                "rule": {
+                    "ranges": [
+                        {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": validation_end_row,
+                            "startColumnIndex": variance_column,
+                            "endColumnIndex": variance_column + 1,
+                        }
+                    ],
+                    "booleanRule": {
+                        "condition": {
+                            "type": "CUSTOM_FORMULA",
+                            "values": [
+                                {
+                                    "userEnteredValue": (
+                                        '=AND($S2<>"",ABS($S2)>MAX(0.05,ABS($L2)*0.02))'
+                                    )
+                                }
+                            ],
+                        },
+                        "format": {
+                            "backgroundColor": {"red": 0.96, "green": 0.80, "blue": 0.80},
+                            "textFormat": {"bold": True},
+                        },
+                    },
+                },
+                }
+            }
+        )
     return requests
 
 
@@ -483,6 +760,7 @@ def header_format_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[st
 def frozen_column_count(sheet_name: str) -> int:
     if sheet_name in {
         "Daily Log",
+        "Batch Builder",
         "Formulations",
         "Results",
         "Run Capture Plan",
@@ -667,7 +945,7 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
         ("Experiment record", "Experiments"),
         ("Run plan", "Run Capture Plan"),
         ("Bench observations", "Daily Log"),
-        ("Formulation", "Formulations"),
+        ("Batch quantities", "Batch Builder"),
         ("Samples", "Samples"),
         ("Results", "Results"),
         ("Raw files", "Raw Data Files"),
@@ -679,15 +957,15 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
         ["Status", run_console_lookup_formula("I"), "", "", "Operator", "=$B$7", '=IF($B$3="","",IF(F6<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[0][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[0][1]]}","Open →")'],
         ["Operator", run_console_lookup_formula("H"), "", "", "Protocol", run_console_lookup_formula("Q"), '=IF($B$3="","",IF(F7<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[1][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[1][1]]}","Open →")'],
         ["Process", run_console_lookup_formula("D"), "", "", "Equipment", run_console_lookup_formula("R"), '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[2][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[2][1]]}","Open →")'],
-        ["Date", run_console_lookup_formula("B"), "", "", "Run steps", '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9>0,"✓ Ready","⚠ Missing"))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
-        ["Objective", run_console_lookup_formula("E"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F10>0,"✓ Logged","⚠ Missing"))', "", link_rows[4][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[4][1]]}","Open →")'],
-        ["Hypothesis", run_console_lookup_formula("F"), "", "", "Samples", '=IF($B$3="","",COUNTIF(\'Samples\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
-        ["Next step", run_console_lookup_formula("J"), "", "", "Results", '=IF($B$3="","",COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))', "", link_rows[6][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[6][1]]}","Open →")'],
-        ["", "", "", "", "Raw files", '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Linked","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
-        ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F14=0,"✓ Clear","⚠ Attention"))', "", link_rows[8][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[8][1]]}","Open →")'],
-        ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F15<>"Not recorded","✓ Ready","⚠ Missing"))', "", "", ""],
-        ["", "", "", "", "Completeness", '=IF($B$3="","",COUNTIF($G$6:$G$15,"✓*")/10)', '=IF($B$3="","",IF(F16=1,"✓ Ready to close",TEXT(F16,"0%")&" complete"))', "", "", ""],
-        ["", "", "", "", "", "", "", "", "", ""],
+        ["Date", run_console_lookup_formula("B"), "", "", "Batch charges", '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9>0,"✓ Quantified","⚠ Missing"))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
+        ["Objective", run_console_lookup_formula("E"), "", "", "Run steps", '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))', "", link_rows[4][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[4][1]]}","Open →")'],
+        ["Hypothesis", run_console_lookup_formula("F"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
+        ["Next step", run_console_lookup_formula("J"), "", "", "Samples", '=IF($B$3="","",COUNTIF(\'Samples\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))', "", link_rows[6][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[6][1]]}","Open →")'],
+        ["", "", "", "", "Results", '=IF($B$3="","",COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
+        ["", "", "", "", "Raw files", '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F14>0,"✓ Linked","⚠ Missing"))', "", link_rows[8][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[8][1]]}","Open →")'],
+        ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F15=0,"✓ Clear","⚠ Attention"))', "", "", ""],
+        ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F16<>"Not recorded","✓ Ready","⚠ Missing"))', "", "", ""],
+        ["", "", "", "", "Completeness", '=IF($B$3="","",COUNTIF($G$6:$G$16,"✓*")/11)', '=IF($B$3="","",IF(F17=1,"✓ Ready to close",TEXT(F17,"0%")&" complete"))', "", "", ""],
         ["BENCH WORKFLOW", "", "", "", "", "", "", "", "", ""],
         ["1 · PLAN", "Set protocol, equipment, run steps, acceptance criteria, and sample plan before starting.", "", "", "", "", "", "", "", ""],
         ["2 · PREPARE", "Confirm reagent lots, equipment calibration, formulation targets, and safety controls.", "", "", "", "", "", "", "", ""],
@@ -709,26 +987,28 @@ def active_run_queue_formula(experiments_sheet_id: int) -> str:
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",IF(operator="","Assign operator",'
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
+        'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
         'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
         'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
-        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
     )
     completeness = (
         'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
         'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
+        'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
         'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
         'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
-        'N(reviewer<>""))/10)))'
+        'N(reviewer<>""))/11)))'
     )
     return (
         '=IFERROR(SORT(FILTER({'
@@ -967,7 +1247,7 @@ def run_console_setup_requests(
         repeat_cell_format_request(
             sheet_id,
             5,
-            16,
+            17,
             0,
             1,
             {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "textFormat": {"bold": True}},
@@ -1063,7 +1343,7 @@ def run_console_setup_requests(
         repeat_cell_format_request(
             sheet_id,
             5,
-            16,
+            17,
             4,
             5,
             {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "textFormat": {"bold": True}},
@@ -1094,8 +1374,8 @@ def run_console_setup_requests(
             "repeatCell": {
                 "range": {
                     "sheetId": sheet_id,
-                    "startRowIndex": 15,
-                    "endRowIndex": 16,
+                    "startRowIndex": 16,
+                    "endRowIndex": 17,
                     "startColumnIndex": 5,
                     "endColumnIndex": 6,
                 },
@@ -1151,7 +1431,7 @@ def run_console_setup_requests(
                     "addConditionalFormatRule": {
                         "index": index,
                         "rule": {
-                            "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": 16, "startColumnIndex": 6, "endColumnIndex": 7}],
+                            "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": 17, "startColumnIndex": 6, "endColumnIndex": 7}],
                             "booleanRule": {
                                 "condition": {"type": "TEXT_STARTS_WITH", "values": [{"userEnteredValue": prefix}]},
                                 "format": {"backgroundColor": color, "textFormat": {"bold": True}},
@@ -1405,7 +1685,9 @@ def audit_report_against_snapshot(
         reagent_id = str(update.get("reagent_id", "") or update.get("key_value", ""))
         if reagent_id and not any(str(existing.get("reagent_id", "")) == reagent_id for existing in tables.get("Master Reagents", [])):
             errors.append({"code": "missing_update_target", "sheet": "Master Reagents", "key": "reagent_id", "value": reagent_id})
-    existing_formulation_keys = {formulation_key(row) for row in tables.get("Formulations", [])}
+    existing_formulation_keys = {
+        formulation_key(row) for row in formulation_rows_from_tables(tables)
+    }
     for row in formulation_rows:
         row_key = formulation_key(row)
         if row_key in existing_formulation_keys:
@@ -1981,7 +2263,10 @@ def google_contract_migration_requests(
                         "field_name": "value",
                         "old_value": "",
                         "new_value": WORKBOOK_CONTRACT_VERSION,
-                        "reason": "Upgrade workbook contract and scientific record structure.",
+                        "reason": (
+                            "Add a scientist-facing staged batch builder with direct mass "
+                            "and PHR scaling, calculated volume, feed rate, and charge reconciliation."
+                        ),
                         "source": "google-setup-live",
                     }
                 ],
