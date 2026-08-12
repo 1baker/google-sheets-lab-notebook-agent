@@ -15,15 +15,28 @@ from .formulation_normalization import build_formulation_normalization_report
 from .google_sheets import (
     audit_report_against_snapshot,
     batch_update_requests_from_report,
+    generated_sheet_ids_for_missing,
+    google_contract_migration_requests,
     google_setup_audit_from_metadata,
     google_setup_requests_from_metadata,
+    quality_conditional_format_requests,
     sheet_ids_from_metadata_payload,
     sheet_ids_from_snapshot,
+    snapshot_from_tables,
     snapshot_to_tables,
     validate_snapshot,
 )
 from .material_scaffold import build_material_scaffold_report
 from .planning import build_plan_materialization_report
+from .project_notebook import (
+    build_project_notebook_sync_report,
+    parse_project_notebook_sheet,
+)
+from .plotting import (
+    build_plot_report,
+    google_chart_requests,
+    tables_after_report,
+)
 from .recorded_daily_agent import build_snapshot_recorded_daily_agent_run
 from .schema import SHEETS
 
@@ -91,7 +104,13 @@ class GoogleSheetsApiClient:
         return self.request_json(
             "GET",
             f"/v4/spreadsheets/{spreadsheet_id}",
-            params={"fields": "spreadsheetId,properties(title),sheets(properties(sheetId,title,gridProperties))"},
+            params={
+                "fields": (
+                    "spreadsheetId,properties(title,timeZone,locale),"
+                    "sheets(properties(sheetId,title,gridProperties),"
+                    "charts(chartId,spec(title),position),conditionalFormats)"
+                )
+            },
         )
 
     def get_values(
@@ -145,21 +164,270 @@ def capture_snapshot_from_google_sheets(
 ) -> dict[str, Any]:
     metadata = client.get_metadata(spreadsheet_id)
     sheet_ids = sheet_ids_from_metadata(metadata)
+    existing_sheet_names = {
+        str(properties.get("title", ""))
+        for sheet in metadata.get("sheets", []) or []
+        if isinstance(sheet, dict)
+        and isinstance((properties := sheet.get("properties", {})), dict)
+        and properties.get("title") is not None
+    }
     sheets: dict[str, Any] = {}
     for spec in SHEETS:
-        sheets[spec.name] = {
-            "sheet_id": sheet_ids.get(spec.name),
-            "values": client.get_values(
+        if spec.name in existing_sheet_names:
+            values = client.get_values(
                 spreadsheet_id,
                 spec.name,
                 value_range,
                 value_render_option=value_render_option,
-            ),
+            )
+        else:
+            values = []
+        sheets[spec.name] = {
+            "sheet_id": sheet_ids.get(spec.name),
+            "values": values,
         }
     return {
         "schema": "lab-notebook-agent-google-sheets-snapshot.v1",
         "spreadsheet_id": spreadsheet_id,
         "sheets": sheets,
+    }
+
+
+def run_live_google_project_notebook_sync(
+    source_spreadsheet_id: str,
+    target_spreadsheet_id: str,
+    source_sheet_names: tuple[str, ...],
+    client: SheetsApiClient,
+    *,
+    source_range: str = "A1:AO1200",
+    parser_profile: str = "auto",
+    apply: bool = False,
+) -> dict[str, Any]:
+    if source_spreadsheet_id == target_spreadsheet_id:
+        raise ValueError(
+            "Source and target spreadsheet IDs must differ; the source is always read-only."
+        )
+    if not source_sheet_names:
+        raise ValueError(
+            "At least one source sheet is required. Select tabs explicitly so a sync "
+            "cannot accidentally scan an entire research workbook."
+        )
+    if len(set(source_sheet_names)) != len(source_sheet_names):
+        raise ValueError("Source sheet names must be unique.")
+
+    source_metadata = client.get_metadata(source_spreadsheet_id)
+    source_sheet_ids = sheet_ids_from_metadata(source_metadata)
+    missing_source_sheets = [
+        sheet_name
+        for sheet_name in source_sheet_names
+        if sheet_name not in source_sheet_ids
+    ]
+    if missing_source_sheets:
+        raise ValueError(
+            "Source tabs were not found: " + ", ".join(missing_source_sheets)
+        )
+    source_title = str(
+        (source_metadata.get("properties") or {}).get("title", "")
+    )
+    source_url = (
+        f"https://docs.google.com/spreadsheets/d/{source_spreadsheet_id}"
+    )
+    parsed_sources = []
+    source_summaries = []
+    for sheet_name in source_sheet_names:
+        values = client.get_values(
+            source_spreadsheet_id,
+            sheet_name,
+            source_range,
+            value_render_option="FORMATTED_VALUE",
+        )
+        parsed = parse_project_notebook_sheet(
+            values,
+            source_spreadsheet_id=source_spreadsheet_id,
+            source_title=source_title,
+            source_sheet_name=sheet_name,
+            source_sheet_id=source_sheet_ids[sheet_name],
+            source_url=source_url,
+            source_range=source_range,
+            parser_profile=parser_profile,
+        )
+        parsed_sources.append(parsed)
+        source_summaries.append(
+            {
+                "source_key": parsed["source_key"],
+                "source_sheet_name": sheet_name,
+                "source_sheet_id": source_sheet_ids[sheet_name],
+                "source_range": source_range,
+                "parser_profile": parsed["parser_profile"],
+                "source_fingerprint": parsed["source_fingerprint"],
+                "experiment_id": parsed["experiment"].get("experiment_id", ""),
+                "experiment_ids": [
+                    experiment.get("experiment_id", "")
+                    for experiment in parsed.get("experiments", [])
+                    if isinstance(experiment, dict)
+                ],
+                "record_count": len(parsed["records"]),
+                "warning_count": len(parsed["warnings"]),
+            }
+        )
+
+    target_metadata = client.get_metadata(target_spreadsheet_id)
+    target_snapshot = capture_snapshot_from_google_sheets(
+        target_spreadsheet_id,
+        client,
+        value_range="A1:AZ5000",
+    )
+    target_tables = snapshot_to_tables(target_snapshot)
+    report = build_project_notebook_sync_report(parsed_sources, target_tables)
+    projected_tables = tables_after_report(target_tables, report)
+    plot_report = build_plot_report(projected_tables)
+    combined_report = dict(report)
+    for key in (
+        "replace_plot_data",
+        "replace_plot_definitions",
+        "replace_plot_dashboard",
+        "existing_plot_row_counts",
+    ):
+        if key in plot_report:
+            combined_report[key] = plot_report[key]
+
+    existing_sheet_ids = sheet_ids_from_metadata(target_metadata)
+    generated_sheet_ids = generated_sheet_ids_for_missing(existing_sheet_ids)
+    effective_sheet_ids = {**existing_sheet_ids, **generated_sheet_ids}
+    projected_snapshot = snapshot_from_tables(target_tables, effective_sheet_ids)
+    apply_audit = audit_report_against_snapshot(
+        combined_report,
+        projected_snapshot,
+        require_sheet_ids=True,
+    )
+    contract_audit = validate_snapshot(target_snapshot, require_sheet_ids=False)
+    setup_required = (
+        not contract_audit["valid"]
+        or any(spec.name not in existing_sheet_ids for spec in SHEETS)
+    )
+    setup_requests = (
+        google_setup_requests_from_metadata(target_metadata)
+        if setup_required
+        else []
+    )
+    data_requests = (
+        batch_update_requests_from_report(combined_report, effective_sheet_ids)
+        if apply_audit["valid"]
+        else []
+    )
+    plot_data_requests = (
+        batch_update_requests_from_report(plot_report, effective_sheet_ids)
+        if apply_audit["valid"]
+        else []
+    )
+    chart_requests = (
+        google_chart_requests(
+            plot_report,
+            effective_sheet_ids,
+            target_metadata,
+        )
+        if apply_audit["valid"]
+        else []
+    )
+    requests = (
+        setup_requests + data_requests + chart_requests
+        if apply_audit["valid"]
+        else []
+    )
+    response = (
+        client.batch_update(target_spreadsheet_id, requests)
+        if apply and requests
+        else {}
+    )
+    return {
+        "schema": "lab-notebook-agent-live-project-notebook-sync.v1",
+        "source_spreadsheet_id": source_spreadsheet_id,
+        "target_spreadsheet_id": target_spreadsheet_id,
+        "source_is_read_only": True,
+        "applied": bool(apply and requests),
+        "source_sheets": source_summaries,
+        "target_snapshot": target_snapshot,
+        "sync_report": report,
+        "plot_report": plot_report,
+        "contract_audit": contract_audit,
+        "setup_required": setup_required,
+        "setup_request_count": len(setup_requests),
+        "data_request_count": len(data_requests),
+        "plot_data_request_count": len(plot_data_requests),
+        "chart_request_count": len(chart_requests),
+        "apply_audit": apply_audit,
+        "batch_update_requests": requests,
+        "batch_update_response": response,
+    }
+
+
+def run_live_google_plot_refresh(
+    spreadsheet_id: str,
+    client: SheetsApiClient,
+    *,
+    value_range: str = "A1:AZ5000",
+    apply: bool = False,
+) -> dict[str, Any]:
+    metadata = client.get_metadata(spreadsheet_id)
+    snapshot = capture_snapshot_from_google_sheets(
+        spreadsheet_id,
+        client,
+        value_range=value_range,
+    )
+    tables = snapshot_to_tables(snapshot)
+    plot_report = build_plot_report(tables)
+    existing_sheet_ids = sheet_ids_from_metadata(metadata)
+    generated_sheet_ids = generated_sheet_ids_for_missing(existing_sheet_ids)
+    effective_sheet_ids = {**existing_sheet_ids, **generated_sheet_ids}
+    projected_snapshot = snapshot_from_tables(tables, effective_sheet_ids)
+    apply_audit = audit_report_against_snapshot(
+        plot_report,
+        projected_snapshot,
+        require_sheet_ids=True,
+    )
+    contract_audit = validate_snapshot(snapshot, require_sheet_ids=False)
+    setup_required = (
+        not contract_audit["valid"]
+        or any(spec.name not in existing_sheet_ids for spec in SHEETS)
+    )
+    setup_requests = (
+        google_setup_requests_from_metadata(metadata) if setup_required else []
+    )
+    data_requests = (
+        batch_update_requests_from_report(plot_report, effective_sheet_ids)
+        if apply_audit["valid"]
+        else []
+    )
+    chart_requests = (
+        google_chart_requests(plot_report, effective_sheet_ids, metadata)
+        if apply_audit["valid"]
+        else []
+    )
+    requests = (
+        setup_requests + data_requests + chart_requests
+        if apply_audit["valid"]
+        else []
+    )
+    response = (
+        client.batch_update(spreadsheet_id, requests)
+        if apply and requests
+        else {}
+    )
+    return {
+        "schema": "lab-notebook-agent-live-plot-refresh.v1",
+        "spreadsheet_id": spreadsheet_id,
+        "applied": bool(apply and requests),
+        "snapshot": snapshot,
+        "plot_report": plot_report,
+        "contract_audit": contract_audit,
+        "setup_required": setup_required,
+        "setup_request_count": len(setup_requests),
+        "data_request_count": len(data_requests),
+        "plot_data_request_count": len(data_requests),
+        "chart_request_count": len(chart_requests),
+        "apply_audit": apply_audit,
+        "batch_update_requests": requests,
+        "batch_update_response": response,
     }
 
 
@@ -169,8 +437,15 @@ def run_live_google_setup(
     apply: bool = False,
     include_validations: bool = True,
     validation_end_row: int = 1000,
+    normalize_existing_types: bool = True,
 ) -> dict[str, Any]:
     metadata = client.get_metadata(spreadsheet_id)
+    snapshot = capture_snapshot_from_google_sheets(
+        spreadsheet_id,
+        client,
+        value_range=f"A1:AZ{max(2, validation_end_row)}",
+    )
+    tables = snapshot_to_tables(snapshot)
     setup_audit = google_setup_audit_from_metadata(
         metadata,
         include_validations=include_validations,
@@ -181,13 +456,66 @@ def run_live_google_setup(
         include_validations=include_validations,
         validation_end_row=validation_end_row,
     )
+    existing_sheet_ids = sheet_ids_from_metadata(metadata)
+    generated_sheet_ids = generated_sheet_ids_for_missing(existing_sheet_ids)
+    effective_sheet_ids = {**existing_sheet_ids, **generated_sheet_ids}
+    migration_requests = google_contract_migration_requests(
+        tables,
+        effective_sheet_ids,
+        normalize_existing_types=normalize_existing_types,
+    )
+    sheets_with_conditional_formats = {
+        str((sheet.get("properties") or {}).get("title", ""))
+        for sheet in metadata.get("sheets", []) or []
+        if isinstance(sheet, dict) and sheet.get("conditionalFormats")
+    }
+    conditional_format_requests = quality_conditional_format_requests(
+        effective_sheet_ids,
+        validation_end_row,
+    )
+    if "Results" in sheets_with_conditional_formats:
+        results_id = effective_sheet_ids.get("Results")
+        conditional_format_requests = [
+            request
+            for request in conditional_format_requests
+            if (
+                request.get("addConditionalFormatRule", {})
+                .get("rule", {})
+                .get("ranges", [{}])[0]
+                .get("sheetId")
+                != results_id
+            )
+        ]
+    if "Deviations" in sheets_with_conditional_formats:
+        deviations_id = effective_sheet_ids.get("Deviations")
+        conditional_format_requests = [
+            request
+            for request in conditional_format_requests
+            if (
+                request.get("addConditionalFormatRule", {})
+                .get("rule", {})
+                .get("ranges", [{}])[0]
+                .get("sheetId")
+                != deviations_id
+            )
+        ]
+    requests.extend(migration_requests)
+    requests.extend(conditional_format_requests)
+    setup_audit["summary"]["request_count"] = len(requests)
+    setup_audit["summary"]["migration_request_count"] = len(migration_requests)
+    setup_audit["summary"]["conditional_format_request_count"] = len(
+        conditional_format_requests
+    )
     response = client.batch_update(spreadsheet_id, requests) if apply and requests else {}
     return {
         "schema": "lab-notebook-agent-live-google-setup.v1",
         "spreadsheet_id": spreadsheet_id,
         "applied": bool(apply and requests),
         "metadata": metadata,
+        "snapshot": snapshot,
         "setup_audit": setup_audit,
+        "migration_request_count": len(migration_requests),
+        "conditional_format_request_count": len(conditional_format_requests),
         "batch_update_requests": requests,
         "batch_update_response": response,
     }

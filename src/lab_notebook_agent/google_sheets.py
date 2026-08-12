@@ -1,17 +1,43 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .agent import suggestion_to_workbook_row
 from .material_scaffold import formulation_key
 from .planning import result_row_key
-from .schema import CONTROLLED_VOCAB_VALIDATIONS, SHEETS, sheet_by_name
+from .schema import (
+    CONTROLLED_VOCAB_VALIDATIONS,
+    SHEETS,
+    WORKBOOK_CONTRACT_VERSION,
+    column_data_type,
+    column_number_format,
+    sheet_by_name,
+)
 from .sheets import rows_from_values
 
 GENERATED_SHEET_ID_START = 900_000_000
 DEFAULT_VALIDATION_END_ROW = 1000
+DEFAULT_WORKBOOK_TIMEZONE = "America/Chicago"
+PLOT_DASHBOARD_MIN_COLUMNS = 28
+OPTIONAL_EXTENSION_SHEETS = {
+    "Project Notebook Records",
+    "Source Sync",
+    "Plot Data",
+    "Plot Definitions",
+    "Plot Dashboard",
+    "Workbook Metadata",
+    "Run Capture Plan",
+    "Samples",
+    "Equipment",
+    "Protocols",
+    "Specifications",
+    "Deviations",
+    "Raw Data Files",
+    "Audit Log",
+}
 
 
 def load_agent_report(path: str | Path) -> dict[str, Any]:
@@ -180,6 +206,7 @@ def google_setup_requests_from_metadata(
     metadata: dict[str, Any],
     include_validations: bool = True,
     validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+    time_zone: str = DEFAULT_WORKBOOK_TIMEZONE,
 ) -> list[dict[str, Any]]:
     validation_end_row = max(2, validation_end_row)
     existing_sheet_ids = sheet_ids_from_metadata_payload(metadata)
@@ -187,21 +214,41 @@ def google_setup_requests_from_metadata(
     generated_sheet_ids = generated_sheet_ids_for_missing(existing_sheet_ids)
     sheet_ids = {**existing_sheet_ids, **generated_sheet_ids}
     requests: list[dict[str, Any]] = []
+    current_time_zone = str((metadata.get("properties") or {}).get("timeZone", ""))
+    if time_zone and current_time_zone != time_zone:
+        requests.append(
+            {
+                "updateSpreadsheetProperties": {
+                    "properties": {"timeZone": time_zone},
+                    "fields": "timeZone",
+                }
+            }
+        )
     for spec in SHEETS:
         sheet_id = sheet_ids[spec.name]
+        grid_column_count = minimum_grid_column_count(spec.name)
         if spec.name not in existing_sheet_ids:
-            requests.append(add_sheet_request(spec.name, sheet_id, len(spec.headers), validation_end_row))
+            requests.append(
+                add_sheet_request(
+                    spec.name,
+                    sheet_id,
+                    grid_column_count,
+                    validation_end_row,
+                )
+            )
         requests.append(
             sheet_grid_setup_request(
                 spec.name,
                 sheet_id,
-                len(spec.headers),
+                grid_column_count,
                 properties_by_title.get(spec.name, {}),
                 validation_end_row,
             )
         )
         requests.append(header_update_request(spec.name, sheet_ids))
         requests.append(header_format_request(spec.name, sheet_ids))
+        requests.extend(column_number_format_requests(spec.name, sheet_ids, validation_end_row))
+        requests.append(basic_filter_request(spec.name, sheet_ids, validation_end_row))
         requests.append(auto_resize_columns_request(spec.name, sheet_ids))
         if include_validations:
             for field, allowed_values in CONTROLLED_VOCAB_VALIDATIONS.get(spec.name, {}).items():
@@ -230,6 +277,13 @@ def generated_sheet_ids_for_missing(existing_sheet_ids: dict[str, int]) -> dict[
         used_ids.add(next_sheet_id)
         next_sheet_id += 1
     return generated
+
+
+def minimum_grid_column_count(sheet_name: str) -> int:
+    header_count = len(sheet_by_name(sheet_name).headers)
+    if sheet_name == "Plot Dashboard":
+        return max(header_count, PLOT_DASHBOARD_MIN_COLUMNS)
+    return header_count
 
 
 def add_sheet_request(
@@ -288,7 +342,7 @@ def sheet_grid_setup_request(
 def header_update_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[str, Any]:
     if sheet_name not in sheet_ids:
         raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
-    headers = list(sheet_by_name(sheet_name).headers)
+    spec = sheet_by_name(sheet_name)
     return {
         "updateCells": {
             "start": {
@@ -299,12 +353,18 @@ def header_update_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[st
             "rows": [
                 {
                     "values": [
-                        {"userEnteredValue": {"stringValue": header}}
-                        for header in headers
+                        {
+                            "userEnteredValue": {"stringValue": column.name},
+                            "note": (
+                                f"{column.description}"
+                                + (" Required." if column.required else "")
+                            ),
+                        }
+                        for column in spec.columns
                     ]
                 }
             ],
-            "fields": "userEnteredValue",
+            "fields": "userEnteredValue,note",
         }
     }
 
@@ -348,6 +408,71 @@ def auto_resize_columns_request(sheet_name: str, sheet_ids: dict[str, int]) -> d
                 "dimension": "COLUMNS",
                 "startIndex": 0,
                 "endIndex": len(headers),
+            }
+        }
+    }
+
+
+def column_number_format_requests(
+    sheet_name: str,
+    sheet_ids: dict[str, int],
+    end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    if sheet_name not in sheet_ids:
+        raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
+    requests: list[dict[str, Any]] = []
+    for column_index, header in enumerate(sheet_by_name(sheet_name).headers):
+        pattern = column_number_format(sheet_name, header)
+        if not pattern:
+            continue
+        requests.append(
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_ids[sheet_name],
+                        "startRowIndex": 1,
+                        "endRowIndex": max(2, end_row),
+                        "startColumnIndex": column_index,
+                        "endColumnIndex": column_index + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": (
+                                    "DATE_TIME"
+                                    if column_data_type(sheet_name, header) == "datetime"
+                                    else "DATE"
+                                    if column_data_type(sheet_name, header) == "date"
+                                    else "NUMBER"
+                                ),
+                                "pattern": pattern,
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            }
+        )
+    return requests
+
+
+def basic_filter_request(
+    sheet_name: str,
+    sheet_ids: dict[str, int],
+    end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> dict[str, Any]:
+    if sheet_name not in sheet_ids:
+        raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
+    return {
+        "setBasicFilter": {
+            "filter": {
+                "range": {
+                    "sheetId": sheet_ids[sheet_name],
+                    "startRowIndex": 0,
+                    "endRowIndex": max(2, end_row),
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(sheet_by_name(sheet_name).headers),
+                }
             }
         }
     }
@@ -413,9 +538,13 @@ def validate_snapshot(snapshot: dict[str, Any], require_sheet_ids: bool = False)
     for spec in SHEETS:
         payload = sheets.get(spec.name)
         if payload is None:
+            if spec.name in OPTIONAL_EXTENSION_SHEETS:
+                continue
             errors.append({"code": "missing_sheet", "sheet": spec.name})
             continue
         values = sheet_values(payload)
+        if not values and spec.name in OPTIONAL_EXTENSION_SHEETS:
+            continue
         actual_headers = [str(value) for value in values[0]] if values else []
         expected_headers = list(spec.headers)
         if actual_headers[: len(expected_headers)] != expected_headers:
@@ -480,6 +609,19 @@ def audit_report_against_snapshot(
     result_rows = collect_rows(report, "append_results")
     daily_log_rows = collect_rows(report, "append_daily_log")
     daily_review_rows = collect_rows(report, "append_daily_reviews")
+    project_notebook_rows = collect_rows(report, "append_project_notebook_records")
+    project_notebook_updates = collect_rows(report, "update_project_notebook_records")
+    source_sync_rows = collect_rows(report, "append_source_sync")
+    source_sync_updates = collect_rows(report, "update_source_sync")
+    plot_replacements = {
+        sheet_name: collect_rows(report, report_key)
+        for sheet_name, report_key in (
+            ("Plot Data", "replace_plot_data"),
+            ("Plot Definitions", "replace_plot_definitions"),
+            ("Plot Dashboard", "replace_plot_dashboard"),
+        )
+        if report_key in report
+    }
     experiment_updates = collect_rows(report, "update_experiments")
     suggestion_updates = collect_rows(report, "update_agent_suggestions")
     for row in master_reagent_rows:
@@ -565,6 +707,22 @@ def audit_report_against_snapshot(
         review_id = str(row.get("review_id", ""))
         if review_id and any(str(existing.get("review_id", "")) == review_id for existing in tables.get("Daily Reviews", [])):
             errors.append({"code": "duplicate_append", "sheet": "Daily Reviews", "key": "review_id", "value": review_id})
+    audit_keyed_rows(
+        errors,
+        tables,
+        "Project Notebook Records",
+        "record_id",
+        project_notebook_rows,
+        project_notebook_updates,
+    )
+    audit_keyed_rows(
+        errors,
+        tables,
+        "Source Sync",
+        "source_key",
+        source_sync_rows,
+        source_sync_updates,
+    )
 
     if require_sheet_ids and evidence_rows and "Literature Evidence" not in sheet_ids:
         errors.append({"code": "missing_apply_sheet_id", "sheet": "Literature Evidence"})
@@ -590,6 +748,24 @@ def audit_report_against_snapshot(
         errors.append({"code": "missing_apply_sheet_id", "sheet": "Daily Log"})
     if require_sheet_ids and daily_review_rows and "Daily Reviews" not in sheet_ids:
         errors.append({"code": "missing_apply_sheet_id", "sheet": "Daily Reviews"})
+    if (
+        require_sheet_ids
+        and (project_notebook_rows or project_notebook_updates)
+        and "Project Notebook Records" not in sheet_ids
+    ):
+        errors.append({"code": "missing_apply_sheet_id", "sheet": "Project Notebook Records"})
+    if (
+        require_sheet_ids
+        and (source_sync_rows or source_sync_updates)
+        and "Source Sync" not in sheet_ids
+    ):
+        errors.append({"code": "missing_apply_sheet_id", "sheet": "Source Sync"})
+    if require_sheet_ids:
+        for sheet_name in plot_replacements:
+            if sheet_name not in sheet_ids:
+                errors.append(
+                    {"code": "missing_apply_sheet_id", "sheet": sheet_name}
+                )
 
     return {
         "valid": not errors,
@@ -608,6 +784,14 @@ def audit_report_against_snapshot(
             "result_rows_to_append": len(result_rows),
             "daily_log_rows_to_append": len(daily_log_rows),
             "daily_review_rows_to_append": len(daily_review_rows),
+            "project_notebook_rows_to_append": len(project_notebook_rows),
+            "project_notebook_cells_to_update": len(project_notebook_updates),
+            "source_sync_rows_to_append": len(source_sync_rows),
+            "source_sync_cells_to_update": len(source_sync_updates),
+            "plot_sheets_to_replace": len(plot_replacements),
+            "plot_rows_to_replace": sum(
+                len(rows) for rows in plot_replacements.values()
+            ),
             "request_count": len(batch_update_requests_from_report(report, sheet_ids)) if not errors else 0,
         },
     }
@@ -631,6 +815,15 @@ def batch_update_requests_from_report(
     result_rows = collect_rows(report, "append_results")
     daily_log_rows = collect_rows(report, "append_daily_log")
     daily_review_rows = collect_rows(report, "append_daily_reviews")
+    project_notebook_rows = collect_rows(report, "append_project_notebook_records")
+    project_notebook_updates = collect_rows(report, "update_project_notebook_records")
+    source_sync_rows = collect_rows(report, "append_source_sync")
+    source_sync_updates = collect_rows(report, "update_source_sync")
+    plot_replacements = (
+        ("Plot Data", "replace_plot_data"),
+        ("Plot Definitions", "replace_plot_definitions"),
+        ("Plot Dashboard", "replace_plot_dashboard"),
+    )
     experiment_updates = collect_rows(report, "update_experiments")
     suggestion_updates = collect_rows(report, "update_agent_suggestions")
     if master_reagent_rows:
@@ -653,10 +846,39 @@ def batch_update_requests_from_report(
         requests.append(append_cells_request("Agent Suggestions", suggestion_rows, sheet_ids))
     if daily_review_rows:
         requests.append(append_cells_request("Daily Reviews", daily_review_rows, sheet_ids))
+    if project_notebook_rows:
+        requests.append(
+            append_cells_request(
+                "Project Notebook Records",
+                project_notebook_rows,
+                sheet_ids,
+            )
+        )
+    for update in project_notebook_updates:
+        requests.append(
+            update_cell_request("Project Notebook Records", update, sheet_ids)
+        )
+    if source_sync_rows:
+        requests.append(append_cells_request("Source Sync", source_sync_rows, sheet_ids))
+    for update in source_sync_updates:
+        requests.append(update_cell_request("Source Sync", update, sheet_ids))
     for update in experiment_updates:
         requests.append(update_cell_request("Experiments", update, sheet_ids))
     for update in suggestion_updates:
         requests.append(update_cell_request("Agent Suggestions", update, sheet_ids))
+    existing_counts = report.get("existing_plot_row_counts", {})
+    for sheet_name, report_key in plot_replacements:
+        if report_key not in report:
+            continue
+        rows = collect_rows(report, report_key)
+        requests.extend(
+            replace_sheet_rows_requests(
+                sheet_name,
+                rows,
+                int(existing_counts.get(sheet_name, 0) or 0),
+                sheet_ids,
+            )
+        )
     return requests
 
 
@@ -667,15 +889,18 @@ def append_cells_request(
 ) -> dict[str, Any]:
     if sheet_name not in sheet_ids:
         raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
-    headers = list(sheet_by_name(sheet_name).headers)
+    columns = list(sheet_by_name(sheet_name).columns)
     return {
         "appendCells": {
             "sheetId": sheet_ids[sheet_name],
             "rows": [
                 {
                     "values": [
-                        {"userEnteredValue": {"stringValue": stringify_cell(row.get(header, ""))}}
-                        for header in headers
+                        google_cell_data(
+                            row.get(column.name, ""),
+                            data_type=column_data_type(sheet_name, column.name),
+                        )
+                        for column in columns
                     ]
                 }
                 for row in rows
@@ -683,6 +908,98 @@ def append_cells_request(
             "fields": "userEnteredValue",
         }
     }
+
+
+def replace_sheet_rows_requests(
+    sheet_name: str,
+    rows: list[dict[str, Any]],
+    existing_row_count: int,
+    sheet_ids: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Replace all managed data rows while preserving the contract header row."""
+
+    if sheet_name not in sheet_ids:
+        raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
+    headers = list(sheet_by_name(sheet_name).headers)
+    managed_row_count = max(len(rows), max(0, existing_row_count))
+    requests = [
+        {
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet_ids[sheet_name],
+                    "gridProperties": {
+                        "rowCount": max(
+                            DEFAULT_VALIDATION_END_ROW,
+                            managed_row_count + 1,
+                        ),
+                        "columnCount": minimum_grid_column_count(sheet_name),
+                    },
+                },
+                "fields": "gridProperties(rowCount,columnCount)",
+            }
+        }
+    ]
+    if managed_row_count == 0:
+        return requests
+    update_rows = [
+        {
+            "values": [
+                google_cell_data(
+                    row.get(header, ""),
+                    data_type=column_data_type(sheet_name, header),
+                )
+                for header in headers
+            ]
+        }
+        for row in rows
+    ]
+    update_rows.extend(
+        {
+            "values": [
+                {} for _ in headers
+            ]
+        }
+        for _ in range(managed_row_count - len(rows))
+    )
+    requests.append(
+        {
+            "updateCells": {
+                "range": {
+                    "sheetId": sheet_ids[sheet_name],
+                    "startRowIndex": 1,
+                    "endRowIndex": managed_row_count + 1,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(headers),
+                },
+                "rows": update_rows,
+                "fields": "userEnteredValue",
+            }
+        }
+    )
+    return requests
+
+
+def google_cell_data(value: Any, data_type: str = "text") -> dict[str, Any]:
+    entered_value = google_user_entered_value(value, data_type=data_type)
+    return {"userEnteredValue": entered_value} if entered_value else {}
+
+
+def google_user_entered_value(value: Any, data_type: str = "text") -> dict[str, Any]:
+    if value in ("", None):
+        return {}
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, (int, float)):
+        return {"numberValue": value}
+    if data_type == "number":
+        numeric_value = parse_number(value)
+        if numeric_value is not None:
+            return {"numberValue": numeric_value}
+    if data_type in {"date", "datetime"}:
+        serial_value = google_date_serial(value, include_time=data_type == "datetime")
+        if serial_value is not None:
+            return {"numberValue": serial_value}
+    return {"stringValue": stringify_cell(value)}
 
 
 def update_cell_request(
@@ -709,7 +1026,11 @@ def update_cell_request(
             "rows": [
                 {
                     "values": [
-                        {"userEnteredValue": {"stringValue": stringify_cell(update.get("value", ""))}}
+                        {
+                            "userEnteredValue": {
+                                "stringValue": stringify_cell(update.get("value", ""))
+                            }
+                        }
                     ]
                 }
             ],
@@ -718,12 +1039,363 @@ def update_cell_request(
     }
 
 
+def parse_number(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    if text.endswith("%"):
+        text = text[:-1].strip()
+    try:
+        parsed = float(text)
+    except ValueError:
+        return None
+    return int(parsed) if parsed.is_integer() else parsed
+
+
+def google_date_serial(value: Any, include_time: bool = False) -> float | None:
+    parsed: datetime
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            try:
+                parsed_date = date.fromisoformat(text)
+            except ValueError:
+                return None
+            parsed = datetime(parsed_date.year, parsed_date.month, parsed_date.day)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    if not include_time:
+        parsed = datetime(parsed.year, parsed.month, parsed.day)
+    epoch = datetime(1899, 12, 30)
+    return (parsed - epoch).total_seconds() / 86_400
+
+
+def google_contract_migration_requests(
+    tables: dict[str, list[dict[str, Any]]],
+    sheet_ids: dict[str, int],
+    *,
+    migrated_at: str | None = None,
+    time_zone: str = DEFAULT_WORKBOOK_TIMEZONE,
+    normalize_existing_types: bool = False,
+) -> list[dict[str, Any]]:
+    """Build idempotent seed, metadata, lineage, and optional type-repair requests."""
+
+    migrated_at = migrated_at or datetime.now(timezone.utc).isoformat()
+    requests: list[dict[str, Any]] = []
+    keyed_seed_specs = {
+        "Process Knowledge": ("process_type", "material_role"),
+        "Controlled Vocab": ("field", "allowed_value"),
+        "Agent Config": ("key",),
+    }
+    for sheet_name, key_fields in keyed_seed_specs.items():
+        spec = sheet_by_name(sheet_name)
+        existing_keys = {
+            tuple(str(row.get(field, "")).strip() for field in key_fields)
+            for row in tables.get(sheet_name, [])
+        }
+        missing_rows: list[dict[str, Any]] = []
+        for values in spec.example_rows:
+            row = {
+                header: values[index] if index < len(values) else ""
+                for index, header in enumerate(spec.headers)
+            }
+            key = tuple(str(row.get(field, "")).strip() for field in key_fields)
+            if key not in existing_keys:
+                missing_rows.append(row)
+                existing_keys.add(key)
+        if missing_rows:
+            requests.append(append_cells_request(sheet_name, missing_rows, sheet_ids))
+
+    metadata_rows = tables.get("Workbook Metadata", [])
+    metadata_by_key = {
+        str(row.get("key", "")).strip(): (index + 2, row)
+        for index, row in enumerate(metadata_rows)
+        if str(row.get("key", "")).strip()
+    }
+    desired_metadata = (
+        (
+            "contract_name",
+            "lab-notebook-agent-workbook",
+            "Machine-readable workbook contract.",
+        ),
+        (
+            "contract_version",
+            WORKBOOK_CONTRACT_VERSION,
+            "Schema version currently applied to this workbook.",
+        ),
+        (
+            "workbook_timezone",
+            time_zone,
+            "Timezone used for local laboratory timestamps.",
+        ),
+        (
+            "migration_status",
+            "current",
+            "Set by a successful contract migration.",
+        ),
+        (
+            "last_migrated_at",
+            migrated_at,
+            "UTC timestamp of the most recent contract migration.",
+        ),
+    )
+    metadata_appends: list[dict[str, Any]] = []
+    for key, value, notes in desired_metadata:
+        existing = metadata_by_key.get(key)
+        if existing is None:
+            metadata_appends.append(
+                {
+                    "key": key,
+                    "value": value,
+                    "updated_at": migrated_at,
+                    "notes": notes,
+                }
+            )
+            continue
+        row_number, row = existing
+        for field, desired_value in (
+            ("value", value),
+            ("updated_at", migrated_at),
+            ("notes", notes),
+        ):
+            if str(row.get(field, "")) != str(desired_value):
+                requests.append(
+                    update_cell_request(
+                        "Workbook Metadata",
+                        {
+                            "row_number": row_number,
+                            "field": field,
+                            "value": desired_value,
+                        },
+                        sheet_ids,
+                    )
+                )
+    if metadata_appends:
+        requests.append(
+            append_cells_request("Workbook Metadata", metadata_appends, sheet_ids)
+        )
+
+    audit_id = f"MIGRATION-{WORKBOOK_CONTRACT_VERSION}"
+    existing_audit_ids = {
+        str(row.get("audit_id", "")).strip()
+        for row in tables.get("Audit Log", [])
+    }
+    if audit_id not in existing_audit_ids:
+        requests.append(
+            append_cells_request(
+                "Audit Log",
+                [
+                    {
+                        "audit_id": audit_id,
+                        "occurred_at": migrated_at,
+                        "actor": "lab-notebook-agent",
+                        "action": "migrate",
+                        "sheet_name": "Workbook Metadata",
+                        "row_key": "contract_version",
+                        "field_name": "value",
+                        "old_value": "",
+                        "new_value": WORKBOOK_CONTRACT_VERSION,
+                        "reason": "Upgrade workbook contract and scientific record structure.",
+                        "source": "google-setup-live",
+                    }
+                ],
+                sheet_ids,
+            )
+        )
+
+    if normalize_existing_types:
+        requests.extend(google_type_normalization_requests(tables, sheet_ids))
+    return requests
+
+
+def google_type_normalization_requests(
+    tables: dict[str, list[dict[str, Any]]],
+    sheet_ids: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Rewrite parseable typed cells without changing text fields or blank cells."""
+
+    requests: list[dict[str, Any]] = []
+    for sheet_name, rows in tables.items():
+        if sheet_name not in sheet_ids:
+            continue
+        headers = list(sheet_by_name(sheet_name).headers)
+        for row_index, row in enumerate(rows, start=1):
+            for column_index, header in enumerate(headers):
+                data_type = column_data_type(sheet_name, header)
+                if data_type == "text":
+                    continue
+                value = row.get(header, "")
+                entered_value = google_user_entered_value(value, data_type=data_type)
+                if not entered_value or "stringValue" in entered_value:
+                    continue
+                requests.append(
+                    {
+                        "updateCells": {
+                            "start": {
+                                "sheetId": sheet_ids[sheet_name],
+                                "rowIndex": row_index,
+                                "columnIndex": column_index,
+                            },
+                            "rows": [
+                                {
+                                    "values": [
+                                        {"userEnteredValue": entered_value}
+                                    ]
+                                }
+                            ],
+                            "fields": "userEnteredValue",
+                        }
+                    }
+                )
+    return requests
+
+
+def quality_conditional_format_requests(
+    sheet_ids: dict[str, int],
+    end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    requests: list[dict[str, Any]] = []
+    color_by_status = {
+        "pass": {"red": 0.78, "green": 0.90, "blue": 0.79},
+        "warn": {"red": 1.0, "green": 0.92, "blue": 0.68},
+        "fail": {"red": 0.96, "green": 0.76, "blue": 0.76},
+        "not_evaluated": {"red": 0.90, "green": 0.90, "blue": 0.90},
+    }
+    if "Results" in sheet_ids:
+        headers = list(sheet_by_name("Results").headers)
+        column_index = headers.index("qc_status")
+        for index, (status, color) in enumerate(color_by_status.items()):
+            requests.append(
+                {
+                    "addConditionalFormatRule": {
+                        "index": index,
+                        "rule": {
+                            "ranges": [
+                                {
+                                    "sheetId": sheet_ids["Results"],
+                                    "startRowIndex": 1,
+                                    "endRowIndex": max(2, end_row),
+                                    "startColumnIndex": column_index,
+                                    "endColumnIndex": column_index + 1,
+                                }
+                            ],
+                            "booleanRule": {
+                                "condition": {
+                                    "type": "TEXT_EQ",
+                                    "values": [{"userEnteredValue": status}],
+                                },
+                                "format": {"backgroundColor": color},
+                            },
+                        },
+                    }
+                }
+            )
+    if "Deviations" in sheet_ids:
+        headers = list(sheet_by_name("Deviations").headers)
+        column_index = headers.index("status")
+        for index, (status, color) in enumerate(
+            (
+                ("open", {"red": 0.96, "green": 0.76, "blue": 0.76}),
+                ("under_review", {"red": 1.0, "green": 0.92, "blue": 0.68}),
+                ("closed", {"red": 0.78, "green": 0.90, "blue": 0.79}),
+            )
+        ):
+            requests.append(
+                {
+                    "addConditionalFormatRule": {
+                        "index": index,
+                        "rule": {
+                            "ranges": [
+                                {
+                                    "sheetId": sheet_ids["Deviations"],
+                                    "startRowIndex": 1,
+                                    "endRowIndex": max(2, end_row),
+                                    "startColumnIndex": column_index,
+                                    "endColumnIndex": column_index + 1,
+                                }
+                            ],
+                            "booleanRule": {
+                                "condition": {
+                                    "type": "TEXT_EQ",
+                                    "values": [{"userEnteredValue": status}],
+                                },
+                                "format": {"backgroundColor": color},
+                            },
+                        },
+                    }
+                }
+            )
+    return requests
+
+
 def daily_log_row_key(row: dict[str, Any]) -> tuple[str, str, str]:
     return (
         str(row.get("experiment_id", "")).strip(),
         str(row.get("timestamp", "")).strip(),
         str(row.get("observation", "")).strip(),
     )
+
+
+def audit_keyed_rows(
+    errors: list[dict[str, Any]],
+    tables: dict[str, list[dict[str, Any]]],
+    sheet_name: str,
+    key_field: str,
+    append_rows: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+) -> None:
+    existing_keys = {
+        str(row.get(key_field, "")).strip()
+        for row in tables.get(sheet_name, [])
+        if str(row.get(key_field, "")).strip()
+    }
+    pending_keys: set[str] = set()
+    for row in append_rows:
+        key_value = str(row.get(key_field, "")).strip()
+        if not key_value:
+            errors.append(
+                {
+                    "code": "missing_append_key",
+                    "sheet": sheet_name,
+                    "key": key_field,
+                }
+            )
+        elif key_value in existing_keys or key_value in pending_keys:
+            errors.append(
+                {
+                    "code": "duplicate_append",
+                    "sheet": sheet_name,
+                    "key": key_field,
+                    "value": key_value,
+                }
+            )
+        pending_keys.add(key_value)
+    for update in updates:
+        key_value = str(
+            update.get(key_field, "") or update.get("key_value", "")
+        ).strip()
+        if key_value and key_value not in existing_keys:
+            errors.append(
+                {
+                    "code": "missing_update_target",
+                    "sheet": sheet_name,
+                    "key": key_field,
+                    "value": key_value,
+                }
+            )
 
 
 def collect_rows(report: dict[str, Any], key: str) -> list[dict[str, Any]]:

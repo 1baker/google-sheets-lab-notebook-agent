@@ -4,6 +4,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -11,6 +12,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
     SHEETS,
+    column_number_format,
 )
 
 
@@ -49,8 +51,12 @@ def build_workbook(include_examples: bool = True) -> Workbook:
         for row in worksheet.iter_rows(min_row=2):
             for cell in row:
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
+                pattern = column_number_format(spec.name, spec.headers[cell.column - 1])
+                if pattern:
+                    cell.number_format = pattern
 
     add_validations(workbook)
+    add_quality_conditional_formats(workbook)
     add_workflow_note(workbook)
     return workbook
 
@@ -105,3 +111,40 @@ def add_workflow_note(workbook: Workbook) -> None:
         "until reviewed by a human.",
         "lab-notebook-agent",
     )
+
+
+def add_quality_conditional_formats(workbook: Workbook) -> None:
+    results = workbook["Results"]
+    results_headers = [cell.value for cell in results[1]]
+    qc_column = get_column_letter(results_headers.index("qc_status") + 1)
+    for status, color in (
+        ("pass", "C6E0B4"),
+        ("warn", "FFE699"),
+        ("fail", "F4CCCC"),
+        ("not_evaluated", "D9D9D9"),
+    ):
+        results.conditional_formatting.add(
+            f"{qc_column}2:{qc_column}1000",
+            CellIsRule(
+                operator="equal",
+                formula=[f'"{status}"'],
+                fill=PatternFill("solid", fgColor=color),
+            ),
+        )
+
+    deviations = workbook["Deviations"]
+    deviation_headers = [cell.value for cell in deviations[1]]
+    status_column = get_column_letter(deviation_headers.index("status") + 1)
+    for status, color in (
+        ("open", "F4CCCC"),
+        ("under_review", "FFE699"),
+        ("closed", "C6E0B4"),
+    ):
+        deviations.conditional_formatting.add(
+            f"{status_column}2:{status_column}1000",
+            CellIsRule(
+                operator="equal",
+                formula=[f'"{status}"'],
+                fill=PatternFill("solid", fgColor=color),
+            ),
+        )

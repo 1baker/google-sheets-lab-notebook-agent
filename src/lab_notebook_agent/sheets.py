@@ -7,23 +7,11 @@ from typing import Any
 from openpyxl import load_workbook
 
 from .recommend import build_recommendation
-from .schema import sheet_by_name
+from .schema import SHEETS, sheet_by_name
 from .search import LocalSemanticIndex
 
 
-LAB_TABS = (
-    "Master Reagents",
-    "Experiments",
-    "Daily Log",
-    "Formulations",
-    "Results",
-    "Literature Evidence",
-    "Agent Suggestions",
-    "Daily Reviews",
-    "Process Knowledge",
-    "Controlled Vocab",
-    "Agent Config",
-)
+LAB_TABS = tuple(spec.name for spec in SHEETS)
 
 
 def rows_from_values(values: list[list[Any]]) -> list[dict[str, Any]]:
@@ -90,6 +78,31 @@ def build_experiment_entry_from_tables(
     ]
     observations = matching_rows(tables.get("Daily Log", []), "experiment_id", experiment_id)
     results = matching_rows(tables.get("Results", []), "experiment_id", experiment_id)
+    process_records = [
+        row
+        for row in matching_rows(
+            tables.get("Project Notebook Records", []),
+            "experiment_id",
+            experiment_id,
+        )
+        if str(row.get("active", "true")).strip().lower() not in {"false", "0", "no"}
+    ]
+    formulation.extend(
+        imported_component_to_formulation(row)
+        for row in process_records
+        if str(row.get("record_type", "")).strip() == "component"
+    )
+    observations.extend(
+        imported_record_to_observation(row)
+        for row in process_records
+        if str(row.get("record_type", "")).strip()
+        in {"observation", "feed_step", "process_parameter"}
+    )
+    results.extend(
+        imported_record_to_result(row)
+        for row in process_records
+        if str(row.get("record_type", "")).strip() == "result"
+    )
     evidence = linked_literature(
         tables.get("Literature Evidence", []),
         str(experiment.get("linked_literature_ids", "")),
@@ -106,10 +119,94 @@ def build_experiment_entry_from_tables(
         "status": experiment.get("status", ""),
         "planned_next_step": experiment.get("planned_next_step", ""),
         "summary": experiment.get("summary", ""),
+        "source_notebook_id": experiment.get("source_notebook_id", ""),
+        "source_sheet_name": experiment.get("source_sheet_name", ""),
+        "source_url": experiment.get("source_url", ""),
+        "source_modified_at": experiment.get("source_modified_at", ""),
+        "source_fingerprint": experiment.get("source_fingerprint", ""),
         "formulation": formulation,
         "observations": observations,
         "results": results,
+        "process_records": process_records,
         "literature_evidence": evidence,
+    }
+
+
+def imported_component_to_formulation(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "experiment_id": row.get("experiment_id", ""),
+        "reagent_id": row.get("reagent_id", ""),
+        "reagent_name": row.get("material_name", "") or row.get("label", ""),
+        "phase": " / ".join(
+            value
+            for value in (
+                str(row.get("stage", "")).strip(),
+                str(row.get("section", "")).strip(),
+            )
+            if value
+        ),
+        "target_role": row.get("target_role", ""),
+        "mass_g": row.get("actual_mass_g", "") or row.get("mass_g", ""),
+        "planned_mass_g": row.get("mass_g", ""),
+        "actual_mass_g": row.get("actual_mass_g", ""),
+        "mass_variance_g": row.get("mass_variance_g", ""),
+        "volume_mL": row.get("volume_mL", ""),
+        "concentration": row.get("concentration", ""),
+        "concentration_units": row.get("concentration_units", ""),
+        "parts_per_hundred_monomer": row.get("parts_per_hundred_monomer", ""),
+        "lot_number": row.get("lot_number", ""),
+        "notes": row.get("notes", ""),
+        "source_record_id": row.get("record_id", ""),
+        "source_range": row.get("source_range", ""),
+    }
+
+
+def imported_record_to_observation(row: dict[str, Any]) -> dict[str, Any]:
+    label = str(row.get("label", "")).strip()
+    notes = str(row.get("notes", "")).strip()
+    return {
+        "experiment_id": row.get("experiment_id", ""),
+        "process_stage": row.get("stage", ""),
+        "temperature_C": row.get("temperature_C", ""),
+        "rpm": row.get("rpm", ""),
+        "oil_temperature_C": row.get("oil_temperature_C", ""),
+        "torque": row.get("torque", ""),
+        "torque_units": row.get("torque_units", ""),
+        "cumulative_addition_g": row.get("cumulative_addition_g", ""),
+        "source_timestamp": row.get("source_timestamp", ""),
+        "elapsed_end_min": row.get("elapsed_end_min", ""),
+        "particle_size_nm": row.get("particle_size_nm", ""),
+        "observation": notes or label,
+        "source_record_id": row.get("record_id", ""),
+        "source_range": row.get("source_range", ""),
+        "details_json": row.get("details_json", ""),
+    }
+
+
+def imported_record_to_result(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "experiment_id": row.get("experiment_id", ""),
+        "sample_id": row.get("experiment_id", ""),
+        "measurement_type": row.get("label", ""),
+        "value": row.get("actual_value", "") or row.get("planned_value", ""),
+        "units": row.get("units", ""),
+        "condition": " / ".join(
+            value
+            for value in (
+                str(row.get("stage", "")).strip(),
+                str(row.get("section", "")).strip(),
+            )
+            if value
+        ),
+        "quality_flag": (
+            "observed"
+            if row.get("actual_value", "") not in ("", None)
+            else "planned"
+        ),
+        "interpretation": row.get("notes", ""),
+        "product_lot": row.get("product_lot", ""),
+        "source_record_id": row.get("record_id", ""),
+        "source_range": row.get("source_range", ""),
     }
 
 

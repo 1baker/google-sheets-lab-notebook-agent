@@ -41,6 +41,8 @@ from .google_api import (
     run_live_google_formulation_normalization,
     run_live_google_material_scaffold,
     run_live_google_plan_materialization,
+    run_live_google_plot_refresh,
+    run_live_google_project_notebook_sync,
     run_live_google_recorded_daily_agent,
     run_live_google_setup,
 )
@@ -57,6 +59,16 @@ from .notebook_search import search_notebook_tables
 from .planning import apply_plan_materialization_report_to_workbook, build_plan_materialization_report
 from .preflight import build_experiment_preflight_report
 from .prediction import build_litscout_prediction_report
+from .project_notebook import (
+    apply_project_notebook_sync_report_to_workbook,
+    build_project_notebook_sync_report,
+    parse_project_notebook_workbook,
+)
+from .plotting import (
+    apply_plot_report_to_workbook,
+    build_plot_report,
+    tables_after_report,
+)
 from .recommend import build_recommendation, load_entry
 from .recorded_daily_agent import build_snapshot_recorded_daily_agent_run, run_workbook_recorded_daily_agent
 from .schema import workbook_contract
@@ -401,6 +413,11 @@ def main(argv: list[str] | None = None) -> int:
     google_setup_parser.add_argument("--service-account-file", help="Optional service account JSON file. Defaults to Application Default Credentials.")
     google_setup_parser.add_argument("--no-validations", action="store_true", help="Do not add controlled-vocabulary dropdown validation rules.")
     google_setup_parser.add_argument("--validation-end-row", type=int, default=1000, help="Apply dropdown validations through this 1-based row number.")
+    google_setup_parser.add_argument(
+        "--no-type-normalization",
+        action="store_true",
+        help="Leave existing numeric/date cells untouched instead of repairing parseable contract fields.",
+    )
     google_setup_parser.add_argument("--apply", action="store_true", help="Apply the setup batchUpdate requests to the live spreadsheet.")
     google_setup_parser.add_argument("--run-output", help="Optional full live setup run JSON path. Defaults to stdout.")
     google_setup_parser.add_argument("--metadata-output", help="Optional spreadsheet metadata JSON path.")
@@ -627,6 +644,147 @@ def main(argv: list[str] | None = None) -> int:
     google_materialize_parser.add_argument("--report-output", help="Optional materialization report JSON path.")
     google_materialize_parser.add_argument("--audit-output", help="Optional apply audit JSON path.")
     google_materialize_parser.add_argument("--batch-output", help="Optional batchUpdate requests JSON path.")
+
+    google_project_sync_parser = subparsers.add_parser(
+        "google-project-notebook-sync-live",
+        help=(
+            "Read selected source workbook tabs, normalize recipe/process/feed/result "
+            "records, and idempotently sync them into a project notebook."
+        ),
+    )
+    google_project_sync_parser.add_argument(
+        "--source-spreadsheet-id",
+        required=True,
+        help="Read-only source spreadsheet ID.",
+    )
+    google_project_sync_parser.add_argument(
+        "--target-spreadsheet-id",
+        required=True,
+        help="Project notebook spreadsheet ID to audit or update.",
+    )
+    google_project_sync_parser.add_argument(
+        "--source-sheet",
+        action="append",
+        required=True,
+        help="Exact source tab name. Repeat to select multiple tabs.",
+    )
+    google_project_sync_parser.add_argument(
+        "--source-range",
+        default="A1:AO1200",
+        help="Bounded A1 range read from every selected source tab.",
+    )
+    google_project_sync_parser.add_argument(
+        "--parser-profile",
+        choices=(
+            "auto",
+            "cochran-emulsion",
+            "cochran-emulsion-ledger",
+            "cochran-charge-sheet",
+            "cochran-charge-index",
+        ),
+        default="auto",
+    )
+    google_project_sync_parser.add_argument(
+        "--service-account-file",
+        help="Optional service account JSON file. Defaults to Application Default Credentials.",
+    )
+    google_project_sync_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply valid setup and data requests to the target only; the source remains read-only.",
+    )
+    google_project_sync_parser.add_argument("--run-output", help="Optional full live sync JSON path. Defaults to stdout.")
+    google_project_sync_parser.add_argument("--snapshot-output", help="Optional target snapshot JSON path.")
+    google_project_sync_parser.add_argument("--report-output", help="Optional normalized sync report JSON path.")
+    google_project_sync_parser.add_argument("--audit-output", help="Optional target apply audit JSON path.")
+    google_project_sync_parser.add_argument("--batch-output", help="Optional target batchUpdate requests JSON path.")
+
+    project_sync_parser = subparsers.add_parser(
+        "project-notebook-sync",
+        help=(
+            "Normalize selected tabs from a local/exported project workbook and "
+            "idempotently sync them into a local lab notebook."
+        ),
+    )
+    project_sync_parser.add_argument("--source-workbook", required=True)
+    project_sync_parser.add_argument("--target-workbook", required=True)
+    project_sync_parser.add_argument(
+        "--source-sheet",
+        action="append",
+        required=True,
+        help="Exact source tab name. Repeat to select multiple tabs.",
+    )
+    project_sync_parser.add_argument("--source-range", default="A1:AO1200")
+    project_sync_parser.add_argument(
+        "--parser-profile",
+        choices=(
+            "auto",
+            "cochran-emulsion",
+            "cochran-emulsion-ledger",
+            "cochran-charge-sheet",
+            "cochran-charge-index",
+        ),
+        default="auto",
+    )
+    project_sync_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the audited report to the target workbook; the source remains read-only.",
+    )
+    project_sync_parser.add_argument(
+        "--workbook-output",
+        help="Optional output target workbook. Defaults to updating --target-workbook in place.",
+    )
+    project_sync_parser.add_argument(
+        "--report-output",
+        help="Optional sync report JSON path. Defaults to stdout.",
+    )
+
+    plot_parser = subparsers.add_parser(
+        "plot-notebook",
+        help=(
+            "Build provenance-backed Plot Data, Plot Definitions, and an embedded "
+            "chart dashboard from a local lab notebook."
+        ),
+    )
+    plot_parser.add_argument("--workbook", required=True)
+    plot_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Replace the three managed plotting tabs and refresh embedded charts.",
+    )
+    plot_parser.add_argument(
+        "--workbook-output",
+        help="Optional output workbook. Defaults to updating --workbook in place.",
+    )
+    plot_parser.add_argument(
+        "--report-output",
+        help="Optional plot report JSON path. Defaults to stdout.",
+    )
+
+    google_plot_parser = subparsers.add_parser(
+        "google-plot-notebook-live",
+        help=(
+            "Capture a live project notebook, rebuild plot-ready records, reconcile "
+            "managed Google charts, and optionally apply the audited batch."
+        ),
+    )
+    google_plot_parser.add_argument("--spreadsheet-id", required=True)
+    google_plot_parser.add_argument(
+        "--service-account-file",
+        help="Optional service account JSON file. Defaults to Application Default Credentials.",
+    )
+    google_plot_parser.add_argument("--range", default="A1:AZ5000")
+    google_plot_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply valid setup, plot-data, and chart requests.",
+    )
+    google_plot_parser.add_argument("--run-output")
+    google_plot_parser.add_argument("--snapshot-output")
+    google_plot_parser.add_argument("--report-output")
+    google_plot_parser.add_argument("--audit-output")
+    google_plot_parser.add_argument("--batch-output")
 
     args = parser.parse_args(argv)
     if args.command == "init":
@@ -1079,6 +1237,7 @@ def main(argv: list[str] | None = None) -> int:
             apply=args.apply,
             include_validations=not args.no_validations,
             validation_end_row=args.validation_end_row,
+            normalize_existing_types=not args.no_type_normalization,
         )
         if args.metadata_output:
             write_or_print_json(run.get("metadata", {}), args.metadata_output)
@@ -1386,6 +1545,106 @@ def main(argv: list[str] | None = None) -> int:
             batch_output=args.batch_output,
             report_key="materialization_report",
         )
+        return 0
+    if args.command == "google-project-notebook-sync-live":
+        client = build_google_client(args.service_account_file)
+        run = run_live_google_project_notebook_sync(
+            args.source_spreadsheet_id,
+            args.target_spreadsheet_id,
+            tuple(args.source_sheet),
+            client,
+            source_range=args.source_range,
+            parser_profile=args.parser_profile,
+            apply=args.apply,
+        )
+        if args.snapshot_output:
+            write_or_print_json(run.get("target_snapshot", {}), args.snapshot_output)
+        if args.report_output:
+            write_or_print_json(run.get("sync_report", {}), args.report_output)
+        if args.audit_output:
+            write_or_print_json(run.get("apply_audit", {}), args.audit_output)
+        if args.batch_output:
+            write_or_print_json(run.get("batch_update_requests", []), args.batch_output)
+        if args.run_output:
+            write_or_print_json(run, args.run_output)
+        elif not any(
+            (
+                args.snapshot_output,
+                args.report_output,
+                args.audit_output,
+                args.batch_output,
+            )
+        ):
+            print_json(run)
+        return 0
+    if args.command == "google-plot-notebook-live":
+        client = build_google_client(args.service_account_file)
+        run = run_live_google_plot_refresh(
+            args.spreadsheet_id,
+            client,
+            value_range=args.range,
+            apply=args.apply,
+        )
+        write_live_run_outputs(
+            run,
+            run_output=args.run_output,
+            snapshot_output=args.snapshot_output,
+            report_output=args.report_output,
+            audit_output=args.audit_output,
+            batch_output=args.batch_output,
+            report_key="plot_report",
+        )
+        return 0
+    if args.command == "project-notebook-sync":
+        source_path = Path(args.source_workbook).expanduser().resolve()
+        target_path = Path(args.target_workbook).expanduser().resolve()
+        output_path = (
+            Path(args.workbook_output).expanduser().resolve()
+            if args.workbook_output
+            else target_path
+        )
+        if args.apply and source_path == target_path and output_path == source_path:
+            raise SystemExit(
+                "The source workbook is read-only. Use a different --target-workbook "
+                "or --workbook-output."
+            )
+        parsed_sources = parse_project_notebook_workbook(
+            source_path,
+            tuple(args.source_sheet),
+            source_range=args.source_range,
+            parser_profile=args.parser_profile,
+        )
+        target_tables = load_workbook_tables(target_path)
+        report = build_project_notebook_sync_report(parsed_sources, target_tables)
+        plot_report = build_plot_report(tables_after_report(target_tables, report))
+        report["plot_report"] = plot_report
+        if args.apply:
+            destination = apply_project_notebook_sync_report_to_workbook(
+                target_path,
+                report,
+                output_path,
+            )
+            apply_plot_report_to_workbook(destination, plot_report, destination)
+            report["applied"] = True
+            report["output_workbook"] = str(destination)
+        else:
+            report["applied"] = False
+        write_or_print_json(report, args.report_output)
+        return 0
+    if args.command == "plot-notebook":
+        workbook_path = Path(args.workbook).expanduser().resolve()
+        plot_report = build_plot_report(load_workbook_tables(workbook_path))
+        if args.apply:
+            destination = apply_plot_report_to_workbook(
+                workbook_path,
+                plot_report,
+                args.workbook_output,
+            )
+            plot_report["applied"] = True
+            plot_report["output_workbook"] = str(destination)
+        else:
+            plot_report["applied"] = False
+        write_or_print_json(plot_report, args.report_output)
         return 0
     raise AssertionError(f"Unhandled command: {args.command}")
 

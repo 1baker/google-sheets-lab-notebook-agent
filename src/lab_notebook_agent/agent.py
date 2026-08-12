@@ -893,7 +893,12 @@ def is_current_experiment_row(result: dict[str, Any], experiment_id: str) -> boo
     row = result.get("row", {}) if isinstance(result.get("row"), dict) else {}
     if sheet == "Experiments" and str(key_fields.get("experiment_id", "")) == experiment_id:
         return True
-    if sheet in {"Daily Log", "Formulations", "Results"} and str(row.get("experiment_id", "")) == experiment_id:
+    if sheet in {
+        "Daily Log",
+        "Formulations",
+        "Results",
+        "Project Notebook Records",
+    } and str(row.get("experiment_id", "")) == experiment_id:
         return True
     return False
 

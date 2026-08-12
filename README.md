@@ -22,6 +22,7 @@ PYTHONPATH=src python3 -m lab_notebook_agent.cli record-experiment --record exam
 PYTHONPATH=src python3 -m lab_notebook_agent.cli record-daily-agent-run --workbook artifacts/lab_notebook_template.xlsx --record examples/emulsion_polymerization_record.json --run-output artifacts/record-daily-agent-ep-010.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli normalize-formulations --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --report-output artifacts/formulation-normalization-ep-001.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli normalize-daily-log-results --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --report-output artifacts/daily-log-results-ep-001.json
+PYTHONPATH=src python3 -m lab_notebook_agent.cli plot-notebook --workbook artifacts/lab_notebook_template.xlsx --apply --report-output artifacts/plot-refresh.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli daily-summary --workbook artifacts/lab_notebook_template.xlsx --review-date 2026-06-09 --output artifacts/daily-summary-2026-06-09.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli daily-agent-run --workbook artifacts/lab_notebook_template.xlsx --review-date 2026-06-09 --litscout-export artifacts/litscout-ep-001.json --run-output artifacts/daily-agent-run-2026-06-09.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli scaffold-materials --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-002 --process-type "emulsion polymerization" --report-output artifacts/material-scaffold-ep-002.json
@@ -51,6 +52,33 @@ automation.
 - `Agent Suggestions`: recommendations the agent proposes back to the user,
   including structured proposed-plan JSON for accepted follow-ups.
 - `Daily Reviews`: one compact status row per daily agent run.
+- `Project Notebook Records`: provenance-preserving components, calculated
+  process parameters, feed steps, observations, and results imported from
+  project-specific source notebooks.
+- `Source Sync`: one fingerprinted synchronization state row per source tab,
+  used to make repeat imports idempotent and auditable.
+- `Plot Data`: managed, numeric, provenance-backed chart points grouped into
+  contiguous plot blocks. Each point retains its source record IDs and ranges.
+- `Plot Definitions`: stable chart IDs, titles, axes, series, exact data-row
+  bounds, point counts, and readiness status.
+- `Plot Dashboard`: chart inventory plus managed Excel or Google embedded
+  charts. It is rebuilt from the two plotting tabs.
+- `Workbook Metadata`: contract name/version, workbook timezone, and last
+  successful migration state.
+- `Run Capture Plan`: ordered operator actions, targets, operating limits,
+  completion state, and linked deviations for an active run.
+- `Samples`: sample and aliquot lineage, collection context, storage,
+  disposition, and raw-data links.
+- `Equipment`: instrument/reactor identity, location, and calibration state.
+- `Protocols`: versioned SOP or method records and their controlled sources.
+- `Specifications`: draft or active targets and acceptance limits used for
+  explicit result assessment.
+- `Deviations`: documented departures from the approved plan, impact review,
+  disposition, owner, and closure state.
+- `Raw Data Files`: immutable file provenance, instrument/sample linkage,
+  checksums, and parser state.
+- `Audit Log`: append-only create, update, correction, import, and migration
+  events with actor, reason, and before/after values.
 - `Process Knowledge`: compact process priors used for semantic lookup.
 - `Controlled Vocab`: dropdown values shared by tabs, including process types,
   reagent categories, formulation roles, process stages, result quality flags,
@@ -60,6 +88,14 @@ automation.
 Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
+
+The current workbook contract is `0.2.0`. `google-setup-live` is an idempotent
+migration: it creates missing tabs, appends missing controlled vocabulary and
+configuration rows, records contract metadata and an audit event, repairs
+parseable numeric/date cells to native Google values, adds header notes and
+number formats, and applies QC/deviation status coloring. Existing laboratory
+rows are preserved. Use `--no-type-normalization` only when legacy cells must
+remain text for an external consumer.
 
 Agent runs read supported `Agent Config` defaults from the workbook or snapshot:
 `default_context_limit`, `default_history_limit`, `default_evidence_limit`,
@@ -484,13 +520,25 @@ See [docs/live-google-sheets-workflow.md](docs/live-google-sheets-workflow.md)
 for the re-authenticated Google Sheets connector capture, audit, and apply
 workflow.
 
+See
+[docs/cochran-project-notebook-sync.md](docs/cochran-project-notebook-sync.md)
+for the Cochran Research Group emulsion-polymerization source inventory, the
+normalized data contract derived from Vivek Garg's spreadsheets, and the
+read-only-source synchronization command.
+
+See [docs/plotting-workflow.md](docs/plotting-workflow.md) for plot inputs,
+generated chart families, provenance rules, local/Google refresh commands, and
+the fields that should be recorded during a run. A project-notebook sync
+automatically rebuilds plot records and reconciles managed charts; the
+standalone commands refresh charts after manual Daily Log or Results changes.
+
 ## Notebook Search
 
 `search-knowledge` searches the bundled process-knowledge records.
 `search-notebook` searches the actual notebook rows from a workbook or Google
 Sheets snapshot, including Master Reagents, Experiments, Daily Log,
 Formulations, Results, Literature Evidence, Agent Suggestions, Daily Reviews,
-and Process Knowledge.
+Project Notebook Records, Source Sync, and Process Knowledge.
 
 ```bash
 PYTHONPATH=src python3 -m lab_notebook_agent.cli search-notebook \
