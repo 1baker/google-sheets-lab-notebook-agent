@@ -85,7 +85,7 @@ from lab_notebook_agent.recorded_daily_agent import (
     run_workbook_recorded_daily_agent,
 )
 from lab_notebook_agent.result_analysis import build_result_analysis
-from lab_notebook_agent.schema import SHEETS, workbook_contract
+from lab_notebook_agent.schema import RUN_CONSOLE_SHEET, SHEETS, workbook_contract
 from lab_notebook_agent.search import LocalSemanticIndex
 from lab_notebook_agent.sheets import (
     append_suggestion_to_workbook,
@@ -95,7 +95,7 @@ from lab_notebook_agent.sheets import (
     suggestion_to_values,
     suggest_from_workbook,
 )
-from lab_notebook_agent.templates import save_workbook
+from lab_notebook_agent.templates import apply_workbook_presentation, save_workbook
 
 
 class ScaffoldTests(unittest.TestCase):
@@ -103,11 +103,31 @@ class ScaffoldTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = save_workbook(Path(tmpdir) / "template.xlsx")
             workbook = load_workbook(output)
-            self.assertEqual([sheet.name for sheet in SHEETS], workbook.sheetnames)
+            self.assertEqual(
+                [RUN_CONSOLE_SHEET, *(sheet.name for sheet in SHEETS)],
+                workbook.sheetnames,
+            )
+            self.assertEqual("COCHRAN LAB NOTEBOOK", workbook[RUN_CONSOLE_SHEET]["A1"].value)
+            self.assertEqual("A4", workbook[RUN_CONSOLE_SHEET].freeze_panes)
+            self.assertFalse(workbook[RUN_CONSOLE_SHEET].sheet_view.showGridLines)
             for spec in SHEETS:
                 worksheet = workbook[spec.name]
                 headers = [cell.value for cell in worksheet[1]]
                 self.assertEqual(list(spec.headers), headers)
+
+    def test_run_console_preserves_selection_and_marks_technical_tabs_hidden(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = save_workbook(Path(tmpdir) / "template.xlsx")
+            workbook = load_workbook(output)
+            console = workbook[RUN_CONSOLE_SHEET]
+            console["B3"] = "EP-001"
+            apply_workbook_presentation(workbook)
+            self.assertEqual("EP-001", console["B3"].value)
+            self.assertTrue(str(console["B6"].value).startswith("=IF("))
+            self.assertEqual("yyyy-mm-dd", console["B9"].number_format)
+            self.assertEqual("hidden", workbook["Plot Data"].sheet_state)
+            self.assertEqual("visible", workbook["Plot Dashboard"].sheet_state)
+            self.assertLessEqual(workbook["Agent Suggestions"].column_dimensions["M"].width, 40)
 
     def test_workbook_template_validates_controlled_vocab_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3173,7 +3193,8 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(["Notes"], audit["unknown_sheets"])
         self.assertEqual(1, audit["summary"]["existing_contract_sheet_count"])
         self.assertEqual(len(requests), audit["summary"]["request_count"])
-        self.assertEqual(900000000, audit["generated_sheet_ids"]["Master Reagents"])
+        self.assertEqual(900000000, audit["generated_sheet_ids"][RUN_CONSOLE_SHEET])
+        self.assertEqual(900000001, audit["generated_sheet_ids"]["Master Reagents"])
 
     def test_validate_snapshot_detects_header_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3993,7 +4014,15 @@ class FakeSheetsApiClient:
         self.batch_updates: list[list[dict[str, object]]] = []
 
     def get_metadata(self, spreadsheet_id: str) -> dict[str, object]:
-        sheets = []
+        sheets = [
+            {
+                "properties": {
+                    "title": RUN_CONSOLE_SHEET,
+                    "sheetId": 99,
+                    "gridProperties": {"rowCount": 100, "columnCount": 12},
+                }
+            }
+        ]
         for sheet_name, payload in self.snapshot["sheets"].items():
             sheets.append(
                 {

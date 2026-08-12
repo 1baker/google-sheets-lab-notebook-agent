@@ -4,13 +4,14 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
-from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
+    RUN_CONSOLE_SHEET,
     SHEETS,
     column_number_format,
 )
@@ -19,11 +20,367 @@ from .schema import (
 HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 SUBTLE_FILL = PatternFill("solid", fgColor="D9EAF7")
+CONSOLE_NAVY = "122E4A"
+CONSOLE_TEAL = "197A8C"
+CONSOLE_PALE_BLUE = "EAF4F7"
+CONSOLE_INPUT = "FFF2B8"
+TECHNICAL_SHEETS = frozenset(
+    {
+        "Daily Reviews",
+        "Project Notebook Records",
+        "Source Sync",
+        "Plot Data",
+        "Plot Definitions",
+        "Process Knowledge",
+        "Controlled Vocab",
+        "Agent Config",
+        "Workbook Metadata",
+        "Audit Log",
+    }
+)
+CORE_ENTRY_SHEETS = frozenset(
+    {
+        "Experiments",
+        "Daily Log",
+        "Formulations",
+        "Results",
+        "Run Capture Plan",
+        "Samples",
+        "Deviations",
+        "Raw Data Files",
+    }
+)
+REFERENCE_SHEETS = frozenset(
+    {"Master Reagents", "Equipment", "Protocols", "Specifications"}
+)
+
+
+def freeze_pane_for_sheet(sheet_name: str) -> str:
+    if sheet_name in {
+        "Daily Log",
+        "Formulations",
+        "Results",
+        "Run Capture Plan",
+        "Samples",
+        "Deviations",
+        "Raw Data Files",
+        "Project Notebook Records",
+    }:
+        return "C2"
+    return "B2"
+
+
+def column_width(header: str) -> float:
+    text = header.lower()
+    if any(
+        token in text
+        for token in (
+            "json",
+            "notes",
+            "description",
+            "objective",
+            "hypothesis",
+            "summary",
+            "finding",
+            "rationale",
+            "proposed_change",
+            "expected_effect",
+            "interpretation",
+            "guidance",
+            "immediate_action",
+            "impact_assessment",
+            "disposition",
+            "change_summary",
+        )
+    ):
+        return 40
+    if "url" in text or "source_range" in text or "linked_" in text:
+        return 28
+    if text in {
+        "title",
+        "name",
+        "material_name",
+        "reagent_name",
+        "measurement_type",
+        "parameter",
+        "action",
+        "method",
+        "search_terms",
+        "typical_examples",
+        "measured_fields",
+    }:
+        return 26
+    if text.endswith("_at") or text.endswith("_date") or text == "timestamp":
+        return 22
+    if text.endswith("_id") or text in {"record_id", "source_key"}:
+        return 20
+    if text in {
+        "status",
+        "qc_status",
+        "quality_flag",
+        "process_stage",
+        "category",
+        "target_role",
+        "units",
+        "confidence",
+        "active",
+        "required",
+    }:
+        return 16
+    return 18
+
+
+def sheet_tab_color(sheet_name: str) -> str:
+    if sheet_name == RUN_CONSOLE_SHEET:
+        return CONSOLE_NAVY
+    if sheet_name in CORE_ENTRY_SHEETS:
+        return "197A8C"
+    if sheet_name in REFERENCE_SHEETS:
+        return "4F8F5B"
+    if sheet_name in {"Plot Dashboard", "Literature Evidence"}:
+        return "6650A3"
+    if sheet_name == "Agent Suggestions":
+        return "D1842B"
+    return "8C999F"
+
+
+def console_lookup(column_letter: str) -> str:
+    return (
+        '=IF($B$3="","",IFERROR(IF(INDEX(Experiments!$'
+        f'{column_letter}$2:${column_letter}$1000,'
+        'MATCH($B$3,Experiments!$A$2:$A$1000,0))="","Not recorded",'
+        'INDEX(Experiments!$'
+        f'{column_letter}$2:${column_letter}$1000,'
+        'MATCH($B$3,Experiments!$A$2:$A$1000,0))),"Not recorded"))'
+    )
+
+
+def ensure_run_console(workbook: Workbook) -> None:
+    is_new = RUN_CONSOLE_SHEET not in workbook.sheetnames
+    selected_experiment = ""
+    if is_new:
+        worksheet = workbook.create_sheet(RUN_CONSOLE_SHEET, 0)
+    else:
+        worksheet = workbook[RUN_CONSOLE_SHEET]
+        selected_experiment = worksheet["B3"].value or ""
+        if workbook.sheetnames[0] != RUN_CONSOLE_SHEET:
+            workbook._sheets.remove(worksheet)
+            workbook._sheets.insert(0, worksheet)
+
+    for row in worksheet.iter_rows(min_row=1, max_row=25, min_col=1, max_col=10):
+        for cell in row:
+            if cell.coordinate != "B3":
+                cell.value = None
+
+    worksheet["A1"] = "COCHRAN LAB NOTEBOOK"
+    worksheet["A2"] = (
+        "Scientist run console · select an experiment to inspect readiness and "
+        "navigate the record"
+    )
+    worksheet["A3"] = "Active experiment"
+    worksheet["B3"] = selected_experiment
+
+    for cell, value in {
+        "A5": "EXPERIMENT OVERVIEW",
+        "E5": "READINESS",
+        "F5": "VALUE",
+        "G5": "CHECK",
+        "I5": "QUICK LINKS",
+        "A6": "Status",
+        "B6": console_lookup("I"),
+        "A7": "Operator",
+        "B7": console_lookup("H"),
+        "A8": "Process",
+        "B8": console_lookup("D"),
+        "A9": "Date",
+        "B9": console_lookup("B"),
+        "A10": "Objective",
+        "B10": console_lookup("E"),
+        "A11": "Hypothesis",
+        "B11": console_lookup("F"),
+        "A12": "Next step",
+        "B12": console_lookup("J"),
+        "E6": "Operator",
+        "F6": "=$B$7",
+        "G6": '=IF($B$3="","",IF(F6<>"Not recorded","✓ Ready","⚠ Missing"))',
+        "E7": "Protocol",
+        "F7": console_lookup("Q"),
+        "G7": '=IF($B$3="","",IF(F7<>"Not recorded","✓ Ready","⚠ Missing"))',
+        "E8": "Equipment",
+        "F8": console_lookup("R"),
+        "G8": '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))',
+        "E9": "Run steps",
+        "F9": '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))',
+        "G9": '=IF($B$3="","",IF(F9>0,"✓ Ready","⚠ Missing"))',
+        "E10": "Observations",
+        "F10": '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))',
+        "G10": '=IF($B$3="","",IF(F10>0,"✓ Logged","⚠ Missing"))',
+        "E11": "Samples",
+        "F11": '=IF($B$3="","",COUNTIF(Samples!$B$2:$B$1000,$B$3))',
+        "G11": '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))',
+        "E12": "Results",
+        "F12": '=IF($B$3="","",COUNTIF(Results!$A$2:$A$1000,$B$3))',
+        "G12": '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))',
+        "E13": "Raw files",
+        "F13": '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))',
+        "G13": '=IF($B$3="","",IF(F13>0,"✓ Linked","⚠ Missing"))',
+        "E14": "Open deviations",
+        "F14": '=IF($B$3="","",COUNTIFS(Deviations!$B$2:$B$1000,$B$3,Deviations!$K$2:$K$1000,"<>closed"))',
+        "G14": '=IF($B$3="","",IF(F14=0,"✓ Clear","⚠ Attention"))',
+        "E15": "Reviewer",
+        "F15": console_lookup("U"),
+        "G15": '=IF($B$3="","",IF(F15<>"Not recorded","✓ Ready","⚠ Missing"))',
+        "E16": "Completeness",
+        "F16": '=IF($B$3="","",COUNTIF($G$6:$G$15,"✓*")/10)',
+        "G16": '=IF($B$3="","",IF(F16=1,"✓ Ready to close",TEXT(F16,"0%")&" complete"))',
+        "A18": "BENCH WORKFLOW",
+        "A19": "1 · PLAN",
+        "B19": "Set protocol, equipment, run steps, acceptance criteria, and sample plan before starting.",
+        "A20": "2 · PREPARE",
+        "B20": "Confirm reagent lots, equipment calibration, formulation targets, and safety controls.",
+        "A21": "3 · RUN",
+        "B21": "Record timestamps, actual additions, process conditions, observations, and deviations as they happen.",
+        "A22": "4 · MEASURE",
+        "B22": "Create sample records, link instrument files, capture uncertainty, and evaluate specifications.",
+        "A23": "5 · REVIEW",
+        "B23": "Complete reviewer fields, resolve deviations, document the conclusion, and define the next experiment.",
+        "A25": "GOOD RECORDS",
+        "B25": "Use stable IDs. Record actual values, times, lots, and operators. Link raw evidence; never replace it with a summary.",
+    }.items():
+        worksheet[cell] = value
+
+    for row_number, (label, sheet_name) in enumerate(
+        (
+            ("Experiment record", "Experiments"),
+            ("Run plan", "Run Capture Plan"),
+            ("Bench observations", "Daily Log"),
+            ("Formulation", "Formulations"),
+            ("Samples", "Samples"),
+            ("Results", "Results"),
+            ("Raw files", "Raw Data Files"),
+            ("Deviations", "Deviations"),
+            ("Plots", "Plot Dashboard"),
+        ),
+        start=6,
+    ):
+        worksheet.cell(row=row_number, column=9, value=label)
+        worksheet.cell(
+            row=row_number,
+            column=10,
+            value=f'=HYPERLINK("#\'{sheet_name}\'!A1","Open →")',
+        )
+
+    worksheet.freeze_panes = "A4"
+    worksheet.sheet_view.showGridLines = False
+    worksheet.sheet_properties.tabColor = sheet_tab_color(RUN_CONSOLE_SHEET)
+    worksheet.column_dimensions["A"].width = 20
+    worksheet.column_dimensions["B"].width = 40
+    worksheet.column_dimensions["C"].width = 4
+    worksheet.column_dimensions["D"].width = 4
+    worksheet.column_dimensions["E"].width = 20
+    worksheet.column_dimensions["F"].width = 14
+    worksheet.column_dimensions["G"].width = 19
+    worksheet.column_dimensions["H"].width = 4
+    worksheet.column_dimensions["I"].width = 20
+    worksheet.column_dimensions["J"].width = 14
+    for row_number, height in ((1, 34), (2, 22), (3, 28), (5, 24), (18, 24), (25, 38)):
+        worksheet.row_dimensions[row_number].height = height
+
+    thin_gold = Side(style="thin", color="BD9729")
+    for row in worksheet.iter_rows(min_row=1, max_row=25, min_col=1, max_col=10):
+        for cell in row:
+            cell.font = Font(name="Arial", size=10, color="1F2933")
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.fill = PatternFill("solid", fgColor="FFFFFF")
+    for cell in worksheet[1][:10]:
+        cell.fill = PatternFill("solid", fgColor=CONSOLE_NAVY)
+        cell.font = Font(name="Arial", size=20, bold=True, color="FFFFFF")
+    for cell in worksheet[2][:10]:
+        cell.fill = PatternFill("solid", fgColor="DDEBF2")
+        cell.font = Font(name="Arial", size=10, color="384F5E")
+    worksheet["B3"].fill = PatternFill("solid", fgColor=CONSOLE_INPUT)
+    worksheet["B3"].font = Font(name="Arial", size=10, bold=True, color="1F2933")
+    worksheet["B3"].border = Border(
+        left=thin_gold, right=thin_gold, top=thin_gold, bottom=thin_gold
+    )
+    for row_number in (5, 18):
+        for cell in worksheet[row_number][:10]:
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_TEAL)
+            cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    for row_number in range(6, 17):
+        for column in (1, 5):
+            cell = worksheet.cell(row=row_number, column=column)
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
+            cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
+    for row_number in range(19, 24):
+        cell = worksheet.cell(row=row_number, column=1)
+        cell.fill = PatternFill("solid", fgColor="DDEBF2")
+        cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
+    for cell in worksheet[25][:10]:
+        cell.fill = PatternFill("solid", fgColor=CONSOLE_INPUT)
+        cell.font = Font(name="Arial", size=10, bold=True, color="1F2933")
+    worksheet["F16"].number_format = "0%"
+    worksheet["B9"].number_format = "yyyy-mm-dd"
+
+    has_validation = any(
+        "B3" in str(validation.sqref)
+        for validation in worksheet.data_validations.dataValidation
+    )
+    if not has_validation:
+        validation = DataValidation(
+            type="list",
+            formula1="'Experiments'!$A$2:$A$1000",
+            allow_blank=True,
+        )
+        validation.error = "Choose an experiment ID from the Experiments table."
+        validation.errorTitle = "Unknown experiment"
+        validation.prompt = "Select the experiment to inspect."
+        validation.promptTitle = "Active experiment"
+        worksheet.add_data_validation(validation)
+        validation.add("B3")
+    if is_new:
+        worksheet.conditional_formatting.add(
+            "G6:G16",
+            FormulaRule(
+                formula=['LEFT(G6,1)="✓"'],
+                fill=PatternFill("solid", fgColor="C6E0B4"),
+                font=Font(bold=True),
+            ),
+        )
+        worksheet.conditional_formatting.add(
+            "G6:G16",
+            FormulaRule(
+                formula=['LEFT(G6,1)="⚠"'],
+                fill=PatternFill("solid", fgColor="FFE699"),
+                font=Font(bold=True),
+            ),
+        )
+
+
+def apply_workbook_presentation(workbook: Workbook) -> None:
+    ensure_run_console(workbook)
+    for spec in SHEETS:
+        if spec.name not in workbook.sheetnames:
+            continue
+        worksheet = workbook[spec.name]
+        worksheet.sheet_properties.tabColor = sheet_tab_color(spec.name)
+        worksheet.sheet_state = "hidden" if spec.name in TECHNICAL_SHEETS else "visible"
+        worksheet.sheet_view.showGridLines = spec.name != "Plot Dashboard"
+        worksheet.freeze_panes = freeze_pane_for_sheet(spec.name)
+        worksheet.row_dimensions[1].height = 27
+        for index, header in enumerate(spec.headers, start=1):
+            worksheet.column_dimensions[get_column_letter(index)].width = column_width(header)
+        for cell in worksheet[1]:
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
 
 
 def build_workbook(include_examples: bool = True) -> Workbook:
     workbook = Workbook()
     workbook.remove(workbook.active)
+
+    ensure_run_console(workbook)
 
     for spec in SHEETS:
         worksheet = workbook.create_sheet(spec.name)
@@ -40,14 +397,14 @@ def build_workbook(include_examples: bool = True) -> Workbook:
             required = " Required." if column.required else ""
             cell.comment = Comment(f"{column.description}{required}", "lab-notebook-agent")
 
-        worksheet.freeze_panes = "A2"
+        worksheet.freeze_panes = freeze_pane_for_sheet(spec.name)
         worksheet.auto_filter.ref = worksheet.dimensions
         worksheet.sheet_view.showGridLines = True
         for column_cells in worksheet.columns:
             header = str(column_cells[0].value)
-            sample_values = [str(cell.value) for cell in column_cells[:20] if cell.value is not None]
-            width = min(max([len(header), *(len(value) for value in sample_values)] + [12]) + 2, 45)
-            worksheet.column_dimensions[column_cells[0].column_letter].width = width
+            worksheet.column_dimensions[column_cells[0].column_letter].width = (
+                column_width(header)
+            )
         for row in worksheet.iter_rows(min_row=2):
             for cell in row:
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
@@ -58,6 +415,7 @@ def build_workbook(include_examples: bool = True) -> Workbook:
     add_validations(workbook)
     add_quality_conditional_formats(workbook)
     add_workflow_note(workbook)
+    apply_workbook_presentation(workbook)
     return workbook
 
 

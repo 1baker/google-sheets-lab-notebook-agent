@@ -19,6 +19,7 @@ PLOT_DATA_SHEET = "Plot Data"
 PLOT_DEFINITIONS_SHEET = "Plot Definitions"
 PLOT_DASHBOARD_SHEET = "Plot Dashboard"
 MANAGED_CHART_TITLE_RE = re.compile(r"\s*\[LNA:([^\]]+)\]\s*$")
+MANAGED_CHART_ALT_TEXT_RE = re.compile(r"^LNA:([^\s]+)$")
 PLOT_REPLACEMENT_KEYS = {
     PLOT_DATA_SHEET: "replace_plot_data",
     PLOT_DEFINITIONS_SHEET: "replace_plot_definitions",
@@ -1030,8 +1031,8 @@ def apply_plot_report_to_workbook(
     ]
     for index, definition in enumerate(ready_definitions):
         chart = excel_chart_for_definition(data_sheet, definition)
-        column = "I" if index % 2 == 0 else "T"
-        row = 2 + (index // 2) * 20
+        column = "A" if index % 2 == 0 else "K"
+        row = 2 + (index // 2) * 22
         dashboard.add_chart(chart, f"{column}{row}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(destination)
@@ -1098,8 +1099,12 @@ def google_chart_requests(
         for chart in sheet.get("charts", []) or []:
             if not isinstance(chart, dict):
                 continue
-            title = str((chart.get("spec") or {}).get("title", ""))
-            match = MANAGED_CHART_TITLE_RE.search(title)
+            chart_spec = chart.get("spec") or {}
+            alt_text = str(chart_spec.get("altText", ""))
+            title = str(chart_spec.get("title", ""))
+            match = MANAGED_CHART_ALT_TEXT_RE.search(alt_text)
+            if match is None:
+                match = MANAGED_CHART_TITLE_RE.search(title)
             if match:
                 existing.setdefault(match.group(1), []).append(chart)
 
@@ -1126,7 +1131,8 @@ def google_chart_requests(
                     "updateEmbeddedObjectPosition": {
                         "objectId": chart_id,
                         "newPosition": position,
-                        "fields": "overlayPosition",
+                        # OverlayPosition is the implied field-mask root.
+                        "fields": "*",
                     }
                 }
             )
@@ -1186,18 +1192,24 @@ def google_chart_spec(
         }
 
     series = []
+    series_colors = (
+        {"red": 0.10, "green": 0.48, "blue": 0.55},
+        {"red": 0.82, "green": 0.52, "blue": 0.17},
+        {"red": 0.40, "green": 0.31, "blue": 0.64},
+        {"red": 0.31, "green": 0.56, "blue": 0.36},
+    )
     for series_number, field in enumerate(SERIES_VALUE_COLUMNS, start=1):
         if definition.get(f"series_{series_number}_name"):
             series.append(
                 {
                     "series": {"sourceRange": source_range(field)},
                     "targetAxis": "LEFT_AXIS",
+                    "colorStyle": {
+                        "rgbColor": series_colors[series_number - 1]
+                    },
                 }
             )
-    title = (
-        f"{definition.get('title', '')} "
-        f"[LNA:{definition.get('plot_id', '')}]"
-    )
+    title = str(definition.get("title", ""))
     basic_chart = {
         "chartType": chart_type,
         "legendPosition": "BOTTOM_LEGEND",
@@ -1222,6 +1234,17 @@ def google_chart_spec(
         basic_chart["stackedType"] = "NOT_STACKED"
     return {
         "title": title,
+        "altText": f"LNA:{definition.get('plot_id', '')}",
+        "fontName": "Arial",
+        "backgroundColorStyle": {
+            "rgbColor": {"red": 1, "green": 1, "blue": 1}
+        },
+        "titleTextFormat": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "bold": True,
+            "foregroundColor": {"red": 0.07, "green": 0.18, "blue": 0.29},
+        },
         "basicChart": basic_chart,
     }
 
@@ -1235,11 +1258,11 @@ def google_chart_position(
             "anchorCell": {
                 "sheetId": dashboard_sheet_id,
                 "rowIndex": 1 + (index // 2) * 20,
-                "columnIndex": 8 + (index % 2) * 10,
+                "columnIndex": (index % 2) * 10,
             },
             "offsetXPixels": 8,
             "offsetYPixels": 8,
-            "widthPixels": 600,
-            "heightPixels": 360,
+            "widthPixels": 720,
+            "heightPixels": 400,
         }
     }

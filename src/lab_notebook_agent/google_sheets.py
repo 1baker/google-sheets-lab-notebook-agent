@@ -10,6 +10,7 @@ from .material_scaffold import formulation_key
 from .planning import result_row_key
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
+    RUN_CONSOLE_SHEET,
     SHEETS,
     WORKBOOK_CONTRACT_VERSION,
     column_data_type,
@@ -22,6 +23,37 @@ GENERATED_SHEET_ID_START = 900_000_000
 DEFAULT_VALIDATION_END_ROW = 1000
 DEFAULT_WORKBOOK_TIMEZONE = "America/Chicago"
 PLOT_DASHBOARD_MIN_COLUMNS = 28
+RUN_CONSOLE_COLUMN_COUNT = 12
+RUN_CONSOLE_ROW_COUNT = 100
+TECHNICAL_SHEETS = frozenset(
+    {
+        "Daily Reviews",
+        "Project Notebook Records",
+        "Source Sync",
+        "Plot Data",
+        "Plot Definitions",
+        "Process Knowledge",
+        "Controlled Vocab",
+        "Agent Config",
+        "Workbook Metadata",
+        "Audit Log",
+    }
+)
+CORE_ENTRY_SHEETS = frozenset(
+    {
+        "Experiments",
+        "Daily Log",
+        "Formulations",
+        "Results",
+        "Run Capture Plan",
+        "Samples",
+        "Deviations",
+        "Raw Data Files",
+    }
+)
+REFERENCE_SHEETS = frozenset(
+    {"Master Reagents", "Equipment", "Protocols", "Specifications"}
+)
 OPTIONAL_EXTENSION_SHEETS = {
     "Project Notebook Records",
     "Source Sync",
@@ -38,6 +70,12 @@ OPTIONAL_EXTENSION_SHEETS = {
     "Raw Data Files",
     "Audit Log",
 }
+
+
+def contract_sheet_names() -> tuple[str, ...]:
+    """Return every physical contract sheet, including interface-only views."""
+
+    return (RUN_CONSOLE_SHEET, *(spec.name for spec in SHEETS))
 
 
 def load_agent_report(path: str | Path) -> dict[str, Any]:
@@ -178,10 +216,15 @@ def google_setup_audit_from_metadata(
         include_validations=include_validations,
         validation_end_row=validation_end_row,
     )
-    contract_sheet_names = {spec.name for spec in SHEETS}
-    existing_contract_sheets = [spec.name for spec in SHEETS if spec.name in existing_sheet_ids]
-    missing_sheets = [spec.name for spec in SHEETS if spec.name not in existing_sheet_ids]
-    unknown_sheets = sorted(set(existing_sheet_ids) - contract_sheet_names)
+    expected_sheet_names = contract_sheet_names()
+    contract_sheet_name_set = set(expected_sheet_names)
+    existing_contract_sheets = [
+        name for name in expected_sheet_names if name in existing_sheet_ids
+    ]
+    missing_sheets = [
+        name for name in expected_sheet_names if name not in existing_sheet_ids
+    ]
+    unknown_sheets = sorted(set(existing_sheet_ids) - contract_sheet_name_set)
     validation_rule_count = (
         sum(len(fields) for fields in CONTROLLED_VOCAB_VALIDATIONS.values()) if include_validations else 0
     )
@@ -193,7 +236,7 @@ def google_setup_audit_from_metadata(
         "unknown_sheets": unknown_sheets,
         "generated_sheet_ids": generated_sheet_ids,
         "summary": {
-            "contract_sheet_count": len(SHEETS),
+            "contract_sheet_count": len(expected_sheet_names),
             "existing_contract_sheet_count": len(existing_contract_sheets),
             "missing_sheet_count": len(missing_sheets),
             "validation_rule_count": validation_rule_count,
@@ -224,6 +267,25 @@ def google_setup_requests_from_metadata(
                 }
             }
         )
+    run_console_id = sheet_ids[RUN_CONSOLE_SHEET]
+    run_console_is_new = RUN_CONSOLE_SHEET not in existing_sheet_ids
+    if run_console_is_new:
+        requests.append(
+            add_sheet_request(
+                RUN_CONSOLE_SHEET,
+                run_console_id,
+                RUN_CONSOLE_COLUMN_COUNT,
+                RUN_CONSOLE_ROW_COUNT,
+                index=0,
+            )
+        )
+    requests.extend(
+        run_console_setup_requests(
+            run_console_id,
+            sheet_ids,
+            is_new=run_console_is_new,
+        )
+    )
     for spec in SHEETS:
         sheet_id = sheet_ids[spec.name]
         grid_column_count = minimum_grid_column_count(spec.name)
@@ -249,7 +311,8 @@ def google_setup_requests_from_metadata(
         requests.append(header_format_request(spec.name, sheet_ids))
         requests.extend(column_number_format_requests(spec.name, sheet_ids, validation_end_row))
         requests.append(basic_filter_request(spec.name, sheet_ids, validation_end_row))
-        requests.append(auto_resize_columns_request(spec.name, sheet_ids))
+        requests.extend(column_width_requests(spec.name, sheet_ids))
+        requests.append(header_row_height_request(spec.name, sheet_ids))
         if include_validations:
             for field, allowed_values in CONTROLLED_VOCAB_VALIDATIONS.get(spec.name, {}).items():
                 requests.append(
@@ -268,18 +331,20 @@ def generated_sheet_ids_for_missing(existing_sheet_ids: dict[str, int]) -> dict[
     used_ids = set(existing_sheet_ids.values())
     generated: dict[str, int] = {}
     next_sheet_id = GENERATED_SHEET_ID_START
-    for spec in SHEETS:
-        if spec.name in existing_sheet_ids:
+    for sheet_name in contract_sheet_names():
+        if sheet_name in existing_sheet_ids:
             continue
         while next_sheet_id in used_ids:
             next_sheet_id += 1
-        generated[spec.name] = next_sheet_id
+        generated[sheet_name] = next_sheet_id
         used_ids.add(next_sheet_id)
         next_sheet_id += 1
     return generated
 
 
 def minimum_grid_column_count(sheet_name: str) -> int:
+    if sheet_name == RUN_CONSOLE_SHEET:
+        return RUN_CONSOLE_COLUMN_COUNT
     header_count = len(sheet_by_name(sheet_name).headers)
     if sheet_name == "Plot Dashboard":
         return max(header_count, PLOT_DASHBOARD_MIN_COLUMNS)
@@ -291,18 +356,24 @@ def add_sheet_request(
     sheet_id: int,
     column_count: int,
     row_count: int,
+    *,
+    index: int | None = None,
 ) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "sheetId": sheet_id,
+        "title": sheet_name,
+        "gridProperties": {
+            "rowCount": row_count,
+            "columnCount": column_count,
+            "frozenRowCount": 3 if sheet_name == RUN_CONSOLE_SHEET else 1,
+            "hideGridlines": sheet_name in {RUN_CONSOLE_SHEET, "Plot Dashboard"},
+        },
+    }
+    if index is not None:
+        properties["index"] = index
     return {
         "addSheet": {
-            "properties": {
-                "sheetId": sheet_id,
-                "title": sheet_name,
-                "gridProperties": {
-                    "rowCount": row_count,
-                    "columnCount": column_count,
-                    "frozenRowCount": 1,
-                },
-            }
+            "properties": properties
         }
     }
 
@@ -317,8 +388,18 @@ def sheet_grid_setup_request(
     grid = properties.get("gridProperties", {})
     if not isinstance(grid, dict):
         grid = {}
-    grid_properties: dict[str, int] = {"frozenRowCount": 1}
-    fields = ["gridProperties.frozenRowCount"]
+    grid_properties: dict[str, Any] = {
+        "frozenRowCount": 1,
+        "frozenColumnCount": frozen_column_count(sheet_name),
+        "hideGridlines": sheet_name == "Plot Dashboard",
+    }
+    fields = [
+        "gridProperties.frozenRowCount",
+        "gridProperties.frozenColumnCount",
+        "gridProperties.hideGridlines",
+        "hidden",
+        "tabColorStyle",
+    ]
     row_count = optional_int(grid.get("rowCount"))
     if row_count is not None and row_count < validation_end_row:
         grid_properties["rowCount"] = validation_end_row
@@ -332,6 +413,8 @@ def sheet_grid_setup_request(
             "properties": {
                 "sheetId": sheet_id,
                 "title": sheet_name,
+                "hidden": sheet_name in TECHNICAL_SHEETS,
+                "tabColorStyle": {"rgbColor": tab_color(sheet_name)},
                 "gridProperties": grid_properties,
             },
             "fields": ",".join(fields),
@@ -397,6 +480,147 @@ def header_format_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[st
     }
 
 
+def frozen_column_count(sheet_name: str) -> int:
+    if sheet_name in {
+        "Daily Log",
+        "Formulations",
+        "Results",
+        "Run Capture Plan",
+        "Samples",
+        "Deviations",
+        "Raw Data Files",
+        "Project Notebook Records",
+    }:
+        return 2
+    return 1
+
+
+def tab_color(sheet_name: str) -> dict[str, float]:
+    if sheet_name == RUN_CONSOLE_SHEET:
+        return {"red": 0.07, "green": 0.18, "blue": 0.29}
+    if sheet_name in CORE_ENTRY_SHEETS:
+        return {"red": 0.10, "green": 0.48, "blue": 0.55}
+    if sheet_name in REFERENCE_SHEETS:
+        return {"red": 0.31, "green": 0.56, "blue": 0.36}
+    if sheet_name in {"Plot Dashboard", "Literature Evidence"}:
+        return {"red": 0.40, "green": 0.31, "blue": 0.64}
+    if sheet_name == "Agent Suggestions":
+        return {"red": 0.82, "green": 0.52, "blue": 0.17}
+    return {"red": 0.55, "green": 0.60, "blue": 0.64}
+
+
+def column_pixel_width(header: str) -> int:
+    text = header.lower()
+    if any(
+        token in text
+        for token in (
+            "json",
+            "notes",
+            "description",
+            "objective",
+            "hypothesis",
+            "summary",
+            "finding",
+            "rationale",
+            "proposed_change",
+            "expected_effect",
+            "interpretation",
+            "guidance",
+            "immediate_action",
+            "impact_assessment",
+            "disposition",
+            "change_summary",
+        )
+    ):
+        return 280
+    if "url" in text or "source_range" in text or "linked_" in text:
+        return 200
+    if text in {
+        "title",
+        "name",
+        "material_name",
+        "reagent_name",
+        "measurement_type",
+        "parameter",
+        "action",
+        "method",
+        "search_terms",
+        "typical_examples",
+        "measured_fields",
+    }:
+        return 185
+    if text.endswith("_at") or text.endswith("_date") or text == "timestamp":
+        return 155
+    if text.endswith("_id") or text in {"record_id", "source_key"}:
+        return 145
+    if text in {
+        "status",
+        "qc_status",
+        "quality_flag",
+        "process_stage",
+        "category",
+        "target_role",
+        "units",
+        "confidence",
+        "active",
+        "required",
+    }:
+        return 115
+    return 125
+
+
+def column_width_requests(
+    sheet_name: str,
+    sheet_ids: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Use bounded, repeatable widths instead of content-driven runaway sizing."""
+
+    if sheet_name not in sheet_ids:
+        raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
+    widths = [column_pixel_width(header) for header in sheet_by_name(sheet_name).headers]
+    requests: list[dict[str, Any]] = []
+    start = 0
+    while start < len(widths):
+        width = widths[start]
+        end = start + 1
+        while end < len(widths) and widths[end] == width:
+            end += 1
+        requests.append(
+            {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_ids[sheet_name],
+                        "dimension": "COLUMNS",
+                        "startIndex": start,
+                        "endIndex": end,
+                    },
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize",
+                }
+            }
+        )
+        start = end
+    return requests
+
+
+def header_row_height_request(
+    sheet_name: str,
+    sheet_ids: dict[str, int],
+) -> dict[str, Any]:
+    return {
+        "updateDimensionProperties": {
+            "range": {
+                "sheetId": sheet_ids[sheet_name],
+                "dimension": "ROWS",
+                "startIndex": 0,
+                "endIndex": 1,
+            },
+            "properties": {"pixelSize": 36},
+            "fields": "pixelSize",
+        }
+    }
+
+
 def auto_resize_columns_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[str, Any]:
     if sheet_name not in sheet_ids:
         raise KeyError(f"Missing sheet ID for {sheet_name!r}.")
@@ -409,6 +633,366 @@ def auto_resize_columns_request(sheet_name: str, sheet_ids: dict[str, int]) -> d
                 "startIndex": 0,
                 "endIndex": len(headers),
             }
+        }
+    }
+
+
+def run_console_cell_data(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if isinstance(value, bool):
+        entered = {"boolValue": value}
+    elif isinstance(value, (int, float)):
+        entered = {"numberValue": value}
+    elif str(value).startswith("="):
+        entered = {"formulaValue": str(value)}
+    else:
+        entered = {"stringValue": str(value)}
+    return {"userEnteredValue": entered}
+
+
+def run_console_lookup_formula(column_letter: str) -> str:
+    return (
+        '=IF($B$3="","",IFERROR(IF(INDEX(\'Experiments\'!$'
+        f'{column_letter}$2:${column_letter}$1000,'
+        "MATCH($B$3,'Experiments'!$A$2:$A$1000,0))=\"\",\"Not recorded\","
+        "INDEX('Experiments'!$"
+        f'{column_letter}$2:${column_letter}$1000,'
+        "MATCH($B$3,'Experiments'!$A$2:$A$1000,0))),\"Not recorded\"))"
+    )
+
+
+def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
+    link_rows = (
+        ("Experiment record", "Experiments"),
+        ("Run plan", "Run Capture Plan"),
+        ("Bench observations", "Daily Log"),
+        ("Formulation", "Formulations"),
+        ("Samples", "Samples"),
+        ("Results", "Results"),
+        ("Raw files", "Raw Data Files"),
+        ("Deviations", "Deviations"),
+        ("Plots", "Plot Dashboard"),
+    )
+    rows: list[list[Any]] = [
+        ["EXPERIMENT OVERVIEW", "", "", "", "READINESS", "VALUE", "CHECK", "", "QUICK LINKS", ""],
+        ["Status", run_console_lookup_formula("I"), "", "", "Operator", "=$B$7", '=IF($B$3="","",IF(F6<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[0][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[0][1]]}","Open →")'],
+        ["Operator", run_console_lookup_formula("H"), "", "", "Protocol", run_console_lookup_formula("Q"), '=IF($B$3="","",IF(F7<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[1][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[1][1]]}","Open →")'],
+        ["Process", run_console_lookup_formula("D"), "", "", "Equipment", run_console_lookup_formula("R"), '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[2][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[2][1]]}","Open →")'],
+        ["Date", run_console_lookup_formula("B"), "", "", "Run steps", '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9>0,"✓ Ready","⚠ Missing"))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
+        ["Objective", run_console_lookup_formula("E"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F10>0,"✓ Logged","⚠ Missing"))', "", link_rows[4][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[4][1]]}","Open →")'],
+        ["Hypothesis", run_console_lookup_formula("F"), "", "", "Samples", '=IF($B$3="","",COUNTIF(\'Samples\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
+        ["Next step", run_console_lookup_formula("J"), "", "", "Results", '=IF($B$3="","",COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))', "", link_rows[6][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[6][1]]}","Open →")'],
+        ["", "", "", "", "Raw files", '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Linked","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
+        ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F14=0,"✓ Clear","⚠ Attention"))', "", link_rows[8][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[8][1]]}","Open →")'],
+        ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F15<>"Not recorded","✓ Ready","⚠ Missing"))', "", "", ""],
+        ["", "", "", "", "Completeness", '=IF($B$3="","",COUNTIF($G$6:$G$15,"✓*")/10)', '=IF($B$3="","",IF(F16=1,"✓ Ready to close",TEXT(F16,"0%")&" complete"))', "", "", ""],
+        ["", "", "", "", "", "", "", "", "", ""],
+        ["BENCH WORKFLOW", "", "", "", "", "", "", "", "", ""],
+        ["1 · PLAN", "Set protocol, equipment, run steps, acceptance criteria, and sample plan before starting.", "", "", "", "", "", "", "", ""],
+        ["2 · PREPARE", "Confirm reagent lots, equipment calibration, formulation targets, and safety controls.", "", "", "", "", "", "", "", ""],
+        ["3 · RUN", "Record timestamps, actual additions, process conditions, observations, and deviations as they happen.", "", "", "", "", "", "", "", ""],
+        ["4 · MEASURE", "Create sample records, link instrument files, capture uncertainty, and evaluate specifications.", "", "", "", "", "", "", "", ""],
+        ["5 · REVIEW", "Complete reviewer fields, resolve deviations, document the conclusion, and define the next experiment.", "", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", "", ""],
+        ["GOOD RECORDS", "Use stable IDs. Record actual values, times, lots, and operators. Link raw evidence; never replace it with a summary.", "", "", "", "", "", "", "", ""],
+    ]
+    return rows
+
+
+def run_console_setup_requests(
+    sheet_id: int,
+    sheet_ids: dict[str, int],
+    *,
+    is_new: bool,
+) -> list[dict[str, Any]]:
+    requests: list[dict[str, Any]] = [
+        {
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet_id,
+                    "hidden": False,
+                    "tabColorStyle": {"rgbColor": tab_color(RUN_CONSOLE_SHEET)},
+                    "gridProperties": {
+                        "frozenRowCount": 3,
+                        "frozenColumnCount": 0,
+                        "hideGridlines": True,
+                    },
+                },
+                "fields": (
+                    "hidden,tabColorStyle,gridProperties.frozenRowCount,"
+                    "gridProperties.frozenColumnCount,gridProperties.hideGridlines"
+                ),
+            }
+        },
+        {
+            "updateCells": {
+                "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": 0},
+                "rows": [
+                    {"values": [run_console_cell_data("COCHRAN LAB NOTEBOOK")]},
+                    {"values": [run_console_cell_data("Scientist run console · select an experiment to inspect readiness and navigate the record")]} ,
+                    {"values": [run_console_cell_data("Active experiment")]},
+                ],
+                "fields": "userEnteredValue",
+            }
+        },
+        {
+            "updateCells": {
+                "start": {"sheetId": sheet_id, "rowIndex": 4, "columnIndex": 0},
+                "rows": [
+                    {"values": [run_console_cell_data(value) for value in row]}
+                    for row in run_console_content_rows(sheet_ids)
+                ],
+                "fields": "userEnteredValue",
+            }
+        },
+        {
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 2,
+                    "endRowIndex": 3,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                },
+                "rule": {
+                    "condition": {
+                        "type": "ONE_OF_RANGE",
+                        "values": [
+                            {"userEnteredValue": "='Experiments'!$A$2:$A$1000"}
+                        ],
+                    },
+                    "inputMessage": "Choose an experiment ID from the Experiments table.",
+                    "strict": True,
+                    "showCustomUi": True,
+                },
+            }
+        },
+    ]
+    if is_new:
+        requests.insert(
+            2,
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet_id, "rowIndex": 2, "columnIndex": 1},
+                    "rows": [{"values": [run_console_cell_data("")]}],
+                    "fields": "userEnteredValue",
+                }
+            },
+        )
+
+    base_format = {
+        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+        "textFormat": {
+            "fontFamily": "Arial",
+            "fontSize": 10,
+            "foregroundColor": {"red": 0.12, "green": 0.16, "blue": 0.20},
+        },
+        "verticalAlignment": "MIDDLE",
+        "wrapStrategy": "WRAP",
+    }
+    requests.extend(
+        [
+            repeat_cell_format_request(sheet_id, 0, 26, 0, 10, base_format),
+            repeat_cell_format_request(
+                sheet_id,
+                0,
+                1,
+                0,
+                10,
+                {
+                    "backgroundColor": {"red": 0.07, "green": 0.18, "blue": 0.29},
+                    "textFormat": {
+                        "fontFamily": "Arial",
+                        "fontSize": 20,
+                        "bold": True,
+                        "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                    },
+                    "verticalAlignment": "MIDDLE",
+                },
+            ),
+            repeat_cell_format_request(
+                sheet_id,
+                1,
+                2,
+                0,
+                10,
+                {
+                    "backgroundColor": {"red": 0.88, "green": 0.93, "blue": 0.96},
+                    "textFormat": {
+                        "fontFamily": "Arial",
+                        "fontSize": 10,
+                        "foregroundColor": {"red": 0.22, "green": 0.31, "blue": 0.38},
+                    },
+                },
+            ),
+            repeat_cell_format_request(
+                sheet_id,
+                2,
+                3,
+                1,
+                2,
+                {
+                    "backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.72},
+                    "textFormat": {"bold": True, "foregroundColor": {"red": 0.12, "green": 0.16, "blue": 0.20}},
+                    "borders": {
+                        "top": {"style": "SOLID", "color": {"red": 0.74, "green": 0.59, "blue": 0.16}},
+                        "bottom": {"style": "SOLID", "color": {"red": 0.74, "green": 0.59, "blue": 0.16}},
+                        "left": {"style": "SOLID", "color": {"red": 0.74, "green": 0.59, "blue": 0.16}},
+                        "right": {"style": "SOLID", "color": {"red": 0.74, "green": 0.59, "blue": 0.16}},
+                    },
+                },
+            ),
+        ]
+    )
+    for row_index in (4, 17):
+        requests.append(
+            repeat_cell_format_request(
+                sheet_id,
+                row_index,
+                row_index + 1,
+                0,
+                10,
+                {
+                    "backgroundColor": {"red": 0.10, "green": 0.48, "blue": 0.55},
+                    "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    "verticalAlignment": "MIDDLE",
+                },
+            )
+        )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            5,
+            16,
+            0,
+            1,
+            {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "textFormat": {"bold": True}},
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            5,
+            16,
+            4,
+            5,
+            {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "textFormat": {"bold": True}},
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            18,
+            23,
+            0,
+            1,
+            {"backgroundColor": {"red": 0.88, "green": 0.93, "blue": 0.96}, "textFormat": {"bold": True}},
+        )
+    )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            24,
+            25,
+            0,
+            10,
+            {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.72}, "textFormat": {"bold": True}},
+        )
+    )
+    requests.append(
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 15,
+                    "endRowIndex": 16,
+                    "startColumnIndex": 5,
+                    "endColumnIndex": 6,
+                },
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "PERCENT", "pattern": "0%"}}},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        }
+    )
+    requests.append(
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 8,
+                    "endRowIndex": 9,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                },
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}}},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        }
+    )
+    for index, width in enumerate((145, 285, 26, 26, 145, 95, 135, 26, 145, 95)):
+        requests.append(
+            {
+                "updateDimensionProperties": {
+                    "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": index, "endIndex": index + 1},
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize",
+                }
+            }
+        )
+    for row_index, height in ((0, 42), (1, 26), (2, 34), (4, 30), (17, 30), (24, 46)):
+        requests.append(
+            {
+                "updateDimensionProperties": {
+                    "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": row_index, "endIndex": row_index + 1},
+                    "properties": {"pixelSize": height},
+                    "fields": "pixelSize",
+                }
+            }
+        )
+    if is_new:
+        for index, (prefix, color) in enumerate(
+            (
+                ("✓", {"red": 0.78, "green": 0.90, "blue": 0.79}),
+                ("⚠", {"red": 1.0, "green": 0.92, "blue": 0.68}),
+            )
+        ):
+            requests.append(
+                {
+                    "addConditionalFormatRule": {
+                        "index": index,
+                        "rule": {
+                            "ranges": [{"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": 16, "startColumnIndex": 6, "endColumnIndex": 7}],
+                            "booleanRule": {
+                                "condition": {"type": "TEXT_STARTS_WITH", "values": [{"userEnteredValue": prefix}]},
+                                "format": {"backgroundColor": color, "textFormat": {"bold": True}},
+                            },
+                        },
+                    }
+                }
+            )
+    return requests
+
+
+def repeat_cell_format_request(
+    sheet_id: int,
+    start_row: int,
+    end_row: int,
+    start_column: int,
+    end_column: int,
+    user_entered_format: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": start_row,
+                "endRowIndex": end_row,
+                "startColumnIndex": start_column,
+                "endColumnIndex": end_column,
+            },
+            "cell": {"userEnteredFormat": user_entered_format},
+            "fields": "userEnteredFormat",
         }
     }
 

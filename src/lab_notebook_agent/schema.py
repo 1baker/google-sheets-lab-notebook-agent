@@ -942,7 +942,8 @@ SHEETS: tuple[SheetSpec, ...] = (
     ),
 )
 
-WORKBOOK_CONTRACT_VERSION = "0.2.0"
+WORKBOOK_CONTRACT_VERSION = "0.3.0"
+RUN_CONSOLE_SHEET = "Run Console"
 
 NUMBER_COLUMNS: dict[str, frozenset[str]] = {
     "Master Reagents": frozenset(
@@ -1147,6 +1148,18 @@ def workbook_contract() -> dict[str, object]:
                 ],
             }
             for sheet in SHEETS
+        ],
+        "views": [
+            {
+                "name": RUN_CONSOLE_SHEET,
+                "kind": "scientist_run_console",
+                "purpose": (
+                    "Scientist-facing experiment overview, readiness checks, "
+                    "bench workflow, and links into normalized record tables."
+                ),
+                "active_experiment_cell": "B3",
+                "preserve_user_cells": ["B3"],
+            }
         ],
         "controlled_vocab": {
             "process_type": list(PROCESS_TYPES),

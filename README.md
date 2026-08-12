@@ -1,8 +1,9 @@
 # Lab Notebook Agent
 
 This is the first scaffold for a Google Sheets-based daily lab notebook agent.
-The workbook is the primary interface: users enter reagents, formulation rows,
-observations, results, and literature evidence in consistent tabs. The local CLI
+The workbook is the primary interface: scientists begin in the `Run Console`,
+then enter reagents, formulation rows, observations, results, and literature
+evidence in consistent tabs. The local CLI
 generates that workbook, searches curated process knowledge, and drafts a next
 experiment recommendation with copy/paste-ready LitScout commands for literature
 evidence.
@@ -42,6 +43,9 @@ automation.
 
 ## Workbook Tabs
 
+- `Run Console`: the scientist-facing front door. Select one experiment to see
+  its objective and next step, assess operator/protocol/equipment/data/review
+  readiness, and jump directly to the relevant logging table.
 - `Master Reagents`: canonical inventory and physical properties such as role,
   molecular weight, density, supplier, lot, hazards, and notes.
 - `Experiments`: one row per planned or completed experiment.
@@ -89,13 +93,17 @@ Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
 
-The current workbook contract is `0.2.0`. `google-setup-live` is an idempotent
-migration: it creates missing tabs, appends missing controlled vocabulary and
-configuration rows, records contract metadata and an audit event, repairs
-parseable numeric/date cells to native Google values, adds header notes and
-number formats, and applies QC/deviation status coloring. Existing laboratory
-rows are preserved. Use `--no-type-normalization` only when legacy cells must
-remain text for an external consumer.
+The current workbook contract is `0.3.0`. `google-setup-live` is an idempotent
+migration: it creates or refreshes the Run Console, preserves its active
+experiment selection, creates missing tabs, appends missing controlled
+vocabulary and configuration rows, records contract metadata and an audit
+event, repairs parseable numeric/date cells to native Google values, adds header
+notes and number formats, and applies QC/deviation status coloring. It uses
+bounded column widths, color-coded tab groups, frozen identifier columns, and
+hides implementation tabs so the workbook opens as a practical bench tool.
+Managed chart IDs live in chart alt text, keeping dashboard titles clean.
+Existing laboratory rows are preserved. Use `--no-type-normalization` only when
+legacy cells must remain text for an external consumer.
 
 Agent runs read supported `Agent Config` defaults from the workbook or snapshot:
 `default_context_limit`, `default_history_limit`, `default_evidence_limit`,

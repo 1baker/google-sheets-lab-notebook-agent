@@ -9,7 +9,7 @@ from lab_notebook_agent.google_sheets import (
     google_setup_requests_from_metadata,
     replace_sheet_rows_requests,
 )
-from lab_notebook_agent.schema import SHEETS, workbook_contract
+from lab_notebook_agent.schema import RUN_CONSOLE_SHEET, SHEETS, workbook_contract
 
 
 class WorkbookMigrationTests(unittest.TestCase):
@@ -21,7 +21,9 @@ class WorkbookMigrationTests(unittest.TestCase):
 
     def test_contract_adds_operational_lineage_and_qc_tabs(self) -> None:
         contract = workbook_contract()
-        self.assertEqual("0.2.0", contract["version"])
+        self.assertEqual("0.3.0", contract["version"])
+        self.assertEqual(RUN_CONSOLE_SHEET, contract["views"][0]["name"])
+        self.assertEqual("B3", contract["views"][0]["active_experiment_cell"])
         names = {sheet["name"] for sheet in contract["sheets"]}
         self.assertTrue(
             {
@@ -81,6 +83,31 @@ class WorkbookMigrationTests(unittest.TestCase):
         )
         self.assertTrue(any("setBasicFilter" in request for request in requests))
 
+    def test_setup_builds_formula_driven_run_console_and_bounded_presentation(self) -> None:
+        requests = google_setup_requests_from_metadata({"properties": {}, "sheets": []})
+        console_id = generated_sheet_ids_for_missing({})[RUN_CONSOLE_SHEET]
+        console_formula_cells = [
+            value["userEnteredValue"]["formulaValue"]
+            for request in requests
+            for row in request.get("updateCells", {}).get("rows", [])
+            for value in row.get("values", [])
+            if "formulaValue" in value.get("userEnteredValue", {})
+            and request.get("updateCells", {}).get("start", {}).get("sheetId")
+            == console_id
+        ]
+        self.assertTrue(console_formula_cells)
+        self.assertTrue(any("Not recorded" in formula for formula in console_formula_cells))
+        self.assertFalse(any("autoResizeDimensions" in request for request in requests))
+        self.assertTrue(
+            any(
+                request.get("updateSheetProperties", {})
+                .get("properties", {})
+                .get("hidden")
+                is True
+                for request in requests
+            )
+        )
+
     def test_migration_seeds_missing_reference_rows_and_is_idempotent(self) -> None:
         empty_tables = {spec.name: [] for spec in SHEETS}
         requests = google_contract_migration_requests(
@@ -123,7 +150,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
                 (
                     "contract_version",
-                    "0.2.0",
+                    "0.3.0",
                     "Schema version currently applied to this workbook.",
                 ),
                 (
@@ -143,7 +170,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
             )
         ]
-        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.2.0"}]
+        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.3.0"}]
         rerun = google_contract_migration_requests(
             seeded_tables,
             self.sheet_ids,

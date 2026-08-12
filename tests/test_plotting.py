@@ -458,9 +458,11 @@ class GooglePlotTests(unittest.TestCase):
             if request.get("addChart", {})
             .get("chart", {})
             .get("spec", {})
-            .get("title", "")
-            .endswith(f"[LNA:{result_definition['plot_id']}]")
+            .get("altText", "")
+            == f"LNA:{result_definition['plot_id']}"
         )
+        self.assertNotIn("[LNA:", result_spec["title"])
+        self.assertEqual("Arial", result_spec["fontName"])
         result_domain = result_spec["basicChart"]["domains"][0]["domain"][
             "sourceRange"
         ]["sources"][0]

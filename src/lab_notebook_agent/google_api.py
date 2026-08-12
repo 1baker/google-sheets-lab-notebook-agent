@@ -15,6 +15,7 @@ from .formulation_normalization import build_formulation_normalization_report
 from .google_sheets import (
     audit_report_against_snapshot,
     batch_update_requests_from_report,
+    contract_sheet_names,
     generated_sheet_ids_for_missing,
     google_contract_migration_requests,
     google_setup_audit_from_metadata,
@@ -107,8 +108,8 @@ class GoogleSheetsApiClient:
             params={
                 "fields": (
                     "spreadsheetId,properties(title,timeZone,locale),"
-                    "sheets(properties(sheetId,title,gridProperties),"
-                    "charts(chartId,spec(title),position),conditionalFormats)"
+                    "sheets(properties(sheetId,title,index,hidden,tabColorStyle,gridProperties),"
+                    "charts(chartId,spec(title,altText),position),conditionalFormats)"
                 )
             },
         )
@@ -303,7 +304,7 @@ def run_live_google_project_notebook_sync(
     contract_audit = validate_snapshot(target_snapshot, require_sheet_ids=False)
     setup_required = (
         not contract_audit["valid"]
-        or any(spec.name not in existing_sheet_ids for spec in SHEETS)
+        or any(name not in existing_sheet_ids for name in contract_sheet_names())
     )
     setup_requests = (
         google_setup_requests_from_metadata(target_metadata)
@@ -388,7 +389,7 @@ def run_live_google_plot_refresh(
     contract_audit = validate_snapshot(snapshot, require_sheet_ids=False)
     setup_required = (
         not contract_audit["valid"]
-        or any(spec.name not in existing_sheet_ids for spec in SHEETS)
+        or any(name not in existing_sheet_ids for name in contract_sheet_names())
     )
     setup_requests = (
         google_setup_requests_from_metadata(metadata) if setup_required else []
@@ -934,7 +935,7 @@ def google_api_doctor(
         return result
 
     sheet_ids = sheet_ids_from_metadata(metadata)
-    missing_sheets = [spec.name for spec in SHEETS if spec.name not in sheet_ids]
+    missing_sheets = [name for name in contract_sheet_names() if name not in sheet_ids]
     if missing_sheets:
         result["checks"].append(
             {

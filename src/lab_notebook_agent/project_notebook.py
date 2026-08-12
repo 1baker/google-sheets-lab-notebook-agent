@@ -1082,6 +1082,10 @@ def ensure_workbook_contract(workbook: Any) -> None:
                 headers.append(header)
                 worksheet.cell(row=1, column=len(headers), value=header)
     seed_local_contract_reference_rows(workbook)
+    # Import lazily to keep the parser module independent from workbook styling.
+    from .templates import apply_workbook_presentation
+
+    apply_workbook_presentation(workbook)
 
 
 def seed_local_contract_reference_rows(workbook: Any) -> None:
