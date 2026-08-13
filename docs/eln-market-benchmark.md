@@ -14,8 +14,12 @@ regulatory equivalence with the referenced products.
 | [LabArchives widgets](https://help.labarchives.com/hc/en-us/articles/11732040270484-Introduction-to-Widgets) | Reusable forms, checklists, tables, dropdowns, and scientific calculators | Existing controlled tables, Run Capture Plan checklists, validations, and automatic mass/stoichiometry calculators cover the useful spreadsheet analogue. |
 | [RSpace features](https://www.researchspace.com/features) | Templates/forms/snippets, internal links, file galleries, chemistry tools, signing/witnessing, inventory, sharing, export, and APIs | Existing protocols, source links, attachments, chemistry calculations, signoff ledger, inventory ledger, and machine-readable contract form the portable subset. |
 | [Chemotion ELN](https://chemotion.net/docs/eln/ui) | Reactions connect starting materials, reagents, and product samples; sample splits preserve physical lineage; collections organize work | Batch Builder roles, reagent IDs, Samples parent lineage, and experiment-centered Reaction Master preserve these relationships without imposing organic-synthesis-only assumptions. |
+| [Signals Notebook experiment templates](https://support.revvitysignals.com/hc/en-us/articles/37319392132756-Signals-Notebook-Creating-and-Managing-Experiment-Templates) | Templates combine required fields with text, chemistry, materials tables, tasks, images, and file attachments; required content can gate close/sign transitions | `Notebook Sections` provides typed, ordered, required narrative blocks with completion state, authorship, timestamps, and attachments. It is a portable structured-record analogue, not an application-level lock. |
+| [Labguru protocols](https://help.labguru.com/en/articles/5469376-creating-and-using-protocols) | Protocols become reusable experiment templates containing procedure steps, reagents, samples, calculations, and results-oriented sections | Governed templates define required capture sections; instantiated work is recorded in `Run Capture Plan`, `Batch Builder`, `Notebook Sections`, and `Reaction Outcomes`. |
+| [Labguru inventory](https://www.labguru.com/inventory) | Experiments link specific stocks and samples, decrement usage, retain physical location, and support barcode-backed container handling | Reagent/lot charge rows, append-only inventory transactions, and sample lineage retain the essential provenance. Barcode printing/scanning remains outside the workbook. |
+| [Uncountable experiments](https://www.support.uncountable.com/knowledge-base/experiments/) | Each experiment separates a structured recipe (ingredients and process parameters) from structured measurements and outputs | `Batch Builder` remains the recipe surface; `Measurements` and the new `Reaction Outcomes` sheet hold results, yield, recovery, and material closure without mixing them into planning cells. |
 
-## v0.10 design decisions
+## v0.11 design decisions
 
 1. A run selects an exact governed template ID and version. Only an `effective`
    matching version passes the governance gate.
@@ -30,6 +34,13 @@ regulatory equivalence with the referenced products.
 5. Existing normalized science records remain intact. All schema changes are
    new sheets or appended columns so live workbook migrations preserve prior
    row meanings.
+6. Required notebook narrative is normalized into typed, ordered sections rather
+   than buried in a single free-text cell. Each section retains completion,
+   authorship, timestamps, and attachments.
+7. Reaction outcome accounting is separate from the recipe calculator. Yield is
+   based on theoretical versus recovered product, while material closure reports
+   product, retained samples, waste, handling loss, and explicitly expected
+   non-product loss against the actual charged mass.
 
 ## Deliberately not emulated
 

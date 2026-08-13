@@ -1,6 +1,18 @@
 # Lab Notebook Agent
 
 This is the first scaffold for a Google Sheets-based daily lab notebook agent.
+
+For the deliberately smaller, formulation-first CCSP emulsion-polymerization
+planner, see [docs/ccsp-emulsion-reaction-sheet-v1.md](docs/ccsp-emulsion-reaction-sheet-v1.md)
+or generate it directly. Its four focused views separate the reaction plan,
+feed schedule, stage checks, and unresolved assumptions. Yellow cells are
+inputs and green cells are calculated outputs:
+
+```bash
+PYTHONPATH=src python3 -m lab_notebook_agent.cli ccsp-reaction-sheet \
+  --output artifacts/ccsp_emulsion_reaction_v1.xlsx \
+  --audit-output artifacts/ccsp_emulsion_reaction_audit_v1.json
+```
 The workbook is the primary interface: scientists begin in the `Run Console`,
 then enter reagents, formulation rows, observations, results, and literature
 evidence in consistent tabs. The local CLI
@@ -19,6 +31,7 @@ PYTHONPATH=src python3 -m lab_notebook_agent.cli search-materials --workbook art
 PYTHONPATH=src python3 -m lab_notebook_agent.cli suggest --entry examples/emulsion_polymerization_entry.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli audit-workbook --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --output artifacts/ep-001-material-audit.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli experiment-preflight --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --stage review --output artifacts/ep-001-preflight-review.json
+PYTHONPATH=src python3 -m lab_notebook_agent.cli experiment-preflight --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --stage archive --output artifacts/ep-001-preflight-archive.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli record-experiment --record examples/emulsion_polymerization_record.json --report-output artifacts/record-ep-010.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli record-daily-agent-run --workbook artifacts/lab_notebook_template.xlsx --record examples/emulsion_polymerization_record.json --run-output artifacts/record-daily-agent-ep-010.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli normalize-formulations --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --report-output artifacts/formulation-normalization-ep-001.json
@@ -83,6 +96,15 @@ automation.
 - `Measurements`: the compact primary results-entry table for sample ID,
   measurement, numeric value, units, condition, uncertainty, quality, analyst,
   raw-file link, and interpretation.
+- `Notebook Sections`: ordered objective, safety, setup, procedure,
+  observation, workup, result, and conclusion blocks. Requiredness, completion
+  state, author, timestamps, and attachments turn free-form narrative into a
+  reviewable experiment record without removing scientific prose.
+- `Reaction Outcomes`: one structured closeout row per product/run. It links
+  the product sample, records theoretical and recovered product, calculates
+  isolated yield, rolls up actual charged mass from `Batch Builder`, and closes
+  the material balance across retained product, samples, waste, process loss,
+  and expected non-product loss. Yellow cells are inputs; blue cells calculate.
 - `Plot Studio`: select a run, a process metric, and a measurement from
   dropdowns. Two charts update automatically from Bench Log and Measurements;
   no plot definitions or manual range editing are required.
@@ -145,7 +167,7 @@ Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
 
-The current workbook contract is `0.10.0`. `google-setup-live` is an idempotent
+The current workbook contract is `0.12.0`. `google-setup-live` is an idempotent
 migration: it creates or refreshes the Run Console, preserves its active
 experiment selection, creates the compact scientist entry sheets, Plot Studio,
 Batch Builder, and other missing tabs, appends missing controlled
@@ -157,6 +179,9 @@ hides implementation tabs so the workbook opens as a practical bench tool.
 Managed chart IDs live in chart alt text, keeping dashboard titles clean.
 Existing laboratory rows are preserved. Use `--no-type-normalization` only when
 legacy cells must remain text for an external consumer.
+
+The evidence and product patterns behind the record-quality gates are documented
+in [Evidence-based lab-record design](docs/evidence-based-lab-record-design.md).
 
 For the automatic mass workflow, see the
 [implementation prompt](docs/automatic-mass-spreadsheet-implementation-prompt.md)

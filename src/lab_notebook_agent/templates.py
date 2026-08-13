@@ -9,8 +9,13 @@ from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.views import Selection
 
 from .batch_builder import BATCH_BUILDER_FORMULA_COLUMNS, excel_batch_builder_formula
+from .reaction_outcomes import (
+    REACTION_OUTCOME_FORMULA_COLUMNS,
+    excel_reaction_outcome_formula,
+)
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
     RUN_CONSOLE_SHEET,
@@ -19,9 +24,6 @@ from .schema import (
 )
 from .scientist_workspace import (
     PROCESS_METRICS,
-    plot_studio_measurement_choices_formula,
-    plot_studio_measurement_formula,
-    plot_studio_process_formula,
     reaction_master_excel_formula,
 )
 
@@ -66,6 +68,8 @@ CORE_ENTRY_SHEETS = frozenset(
         "Inventory Transactions",
         "Equipment Bookings",
         "Record Signatures",
+        "Notebook Sections",
+        "Reaction Outcomes",
     }
 )
 REFERENCE_SHEETS = frozenset(
@@ -88,6 +92,8 @@ def freeze_pane_for_sheet(sheet_name: str) -> str:
         "Inventory Transactions",
         "Equipment Bookings",
         "Record Signatures",
+        "Notebook Sections",
+        "Reaction Outcomes",
         "Project Notebook Records",
     }:
         return "C2"
@@ -180,51 +186,23 @@ def console_lookup(column_letter: str) -> str:
 
 
 def local_active_run_queue_formula() -> str:
-    next_action = (
-        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
-        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
-        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
-        'IF(id="","",IF(operator="","Assign operator",'
-        'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
-        'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
-        'IF(COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")<>COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id),"Fix mass calculation inputs",'
-        'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
-        'IF((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))=0,"Log observation",'
-        'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
-        'IF((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))=0,"Record result",'
-        'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
-        'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
-        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))))'
-    )
-    completeness = (
-        'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
-        'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
-        'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
-        'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
-        'N(AND(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0,COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")=COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)))+'
-        'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
-        'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))>0)+'
-        'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
-        'N((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))>0)+'
-        'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
-        'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
-        'N(reviewer<>""))/11)))'
-    )
+    return '=IF($D30="","",IF($D30="running","1 · RUNNING",IF($D30="planned","2 · PLANNED","3 · REVIEW")))'
+
+
+def active_run_source_index(queue_row: int) -> str:
     return (
-        '=IFERROR(SORT(FILTER({'
-        'IF(Experiments!$I$2:$I$1000="running","1 · RUNNING",'
-        'IF(Experiments!$I$2:$I$1000="planned","2 · PLANNED","3 · REVIEW")),'
-        'Experiments!$A$2:$A$1000,Experiments!$B$2:$B$1000,'
-        'Experiments!$I$2:$I$1000,'
-        'IF(Experiments!$H$2:$H$1000="","Unassigned",Experiments!$H$2:$H$1000),'
-        f'{next_action},{completeness},'
-        'HYPERLINK("#\'Experiments\'!A"&ROW(Experiments!$A$2:$A$1000),"Open →")},'
-        'Experiments!$A$2:$A$1000<>"",'
-        '((Experiments!$I$2:$I$1000="running")+'
-        '(Experiments!$I$2:$I$1000="planned")+'
-        '((Experiments!$I$2:$I$1000="needs_review")*'
-        '(Experiments!$L$2:$L$1000="")))>0),1,TRUE,3,FALSE),'
-        '"No current experiments")'
+        'AGGREGATE(15,6,(ROW(Experiments!$A$2:$A$1000)-ROW(Experiments!$A$2)+1)/'
+        '(((Experiments!$I$2:$I$1000="running")+(Experiments!$I$2:$I$1000="planned")+'
+        '((Experiments!$I$2:$I$1000="needs_review")*(Experiments!$L$2:$L$1000="")))>0),'
+        f'ROWS($A$30:A{queue_row}))'
+    )
+
+
+def excel_plot_row_index(source_sheet: str, value_expression: str, output_row: int, anchor_column: str) -> str:
+    return (
+        f'AGGREGATE(15,6,(ROW(\'{source_sheet}\'!$A$2:$A$1000)-ROW(\'{source_sheet}\'!$A$2)+1)/'
+        f'((\'{source_sheet}\'!$A$2:$A$1000=$B$3)*({value_expression}<>"")),'
+        f'ROWS(${anchor_column}$9:{anchor_column}{output_row}))'
     )
 
 
@@ -348,6 +326,31 @@ def ensure_run_console(workbook: Workbook) -> None:
         "J34": '=COUNTIFS(Experiments!$L$2:$L$1000,"<>",Experiments!$I$2:$I$1000,"needs_review")',
     }.items():
         worksheet[cell] = value
+
+    for queue_row in range(30, 50):
+        source_index = active_run_source_index(queue_row)
+        worksheet[f"B{queue_row}"] = f'=IFERROR(INDEX(Experiments!$A$2:$A$1000,{source_index}),"")'
+        worksheet[f"C{queue_row}"] = f'=IF($B{queue_row}="","",INDEX(Experiments!$B$2:$B$1000,{source_index}))'
+        worksheet[f"D{queue_row}"] = f'=IF($B{queue_row}="","",INDEX(Experiments!$I$2:$I$1000,{source_index}))'
+        worksheet[f"E{queue_row}"] = f'=IF($B{queue_row}="","",IF(INDEX(Experiments!$H$2:$H$1000,{source_index})="","Unassigned",INDEX(Experiments!$H$2:$H$1000,{source_index})))'
+        worksheet[f"A{queue_row}"] = f'=IF($D{queue_row}="","",IF($D{queue_row}="running","1 · RUNNING",IF($D{queue_row}="planned","2 · PLANNED","3 · REVIEW")))'
+        worksheet[f"F{queue_row}"] = (
+            f'=IF($B{queue_row}="","",IF($E{queue_row}="Unassigned","Assign operator",'
+            f'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B{queue_row})=0,"Enter batch quantities",'
+            f'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B{queue_row})=0,"Build run plan",'
+            f'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B{queue_row})=0,"Link raw file","Review record")))))'
+        )
+        worksheet[f"G{queue_row}"] = (
+            f'=IF($B{queue_row}="","",(N($E{queue_row}<>"Unassigned")+'
+            f'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B{queue_row})>0)+'
+            f'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B{queue_row})>0)+'
+            f'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,$B{queue_row})+COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B{queue_row}))>0)+'
+            f'N(COUNTIF(Samples!$B$2:$B$1000,$B{queue_row})>0)+'
+            f'N((COUNTIF(Measurements!$A$2:$A$1000,$B{queue_row})+COUNTIF(Results!$A$2:$A$1000,$B{queue_row}))>0)+'
+            f'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B{queue_row})>0))/7)'
+        )
+        worksheet[f"G{queue_row}"].number_format = "0%"
+        worksheet[f"H{queue_row}"] = f'=IF($B{queue_row}="","",HYPERLINK("#\'Experiments\'!A"&MATCH($B{queue_row},Experiments!$A$2:$A$1000,0)+1,"Open →"))'
 
     for row_number, (label, sheet_name) in enumerate(
         (
@@ -494,6 +497,7 @@ def apply_workbook_presentation(workbook: Workbook) -> None:
             cell.font = HEADER_FONT
             cell.alignment = Alignment(wrap_text=True, vertical="center")
     ensure_batch_builder(workbook)
+    ensure_reaction_outcomes(workbook)
     ensure_reaction_master(workbook)
     ensure_plot_studio(workbook)
 
@@ -623,6 +627,39 @@ def ensure_batch_builder(workbook: Workbook, end_row: int = 1000) -> None:
     )
 
 
+def ensure_reaction_outcomes(workbook: Workbook, end_row: int = 1000) -> None:
+    """Install yield and material-balance formulas while preserving clear inputs."""
+
+    if "Reaction Outcomes" not in workbook.sheetnames:
+        return
+    worksheet = workbook["Reaction Outcomes"]
+    headers = [str(cell.value or "") for cell in worksheet[1]]
+    calculated = set(REACTION_OUTCOME_FORMULA_COLUMNS)
+    for row_number in range(2, max(2, end_row) + 1):
+        for header in calculated:
+            column_number = headers.index(header) + 1
+            cell = worksheet.cell(row=row_number, column=column_number)
+            cell.value = excel_reaction_outcome_formula(header, row_number)
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        for header in set(headers) - calculated:
+            worksheet.cell(row=row_number, column=headers.index(header) + 1).fill = PatternFill(
+                "solid", fgColor="FFF9E3"
+            )
+    worksheet.freeze_panes = "C2"
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(2, end_row)}"
+    for header in ("isolated_yield_percent", "material_balance_closure_percent"):
+        column = get_column_letter(headers.index(header) + 1)
+        for row_number in range(2, end_row + 1):
+            worksheet[f"{column}{row_number}"].number_format = "0.0%"
+    status_column = get_column_letter(headers.index("mass_balance_status") + 1)
+    for status, color in (("CLOSED", "C6E0B4"), ("OPEN", "FFE699"), ("OVER_ACCOUNTED", "F4CCCC")):
+        worksheet.conditional_formatting.add(
+            f"{status_column}2:{status_column}{end_row}",
+            CellIsRule(operator="equal", formula=[f'"{status}"'], fill=PatternFill("solid", fgColor=color)),
+        )
+
+
 def ensure_plot_studio(workbook: Workbook) -> None:
     """Build a selector-driven plotting workspace for routine notebook data."""
 
@@ -641,6 +678,7 @@ def ensure_plot_studio(workbook: Workbook) -> None:
     worksheet._charts = []
     worksheet.auto_filter.ref = None
     worksheet.sheet_view.showGridLines = False
+    worksheet.sheet_view.selection = [Selection(activeCell="A1", sqref="A1")]
     worksheet.freeze_panes = "A7"
     worksheet.sheet_properties.tabColor = "6650A3"
     worksheet["A1"] = "PLOT STUDIO"
@@ -654,13 +692,27 @@ def ensure_plot_studio(workbook: Workbook) -> None:
     worksheet["A7"] = "PROCESS TREND"
     worksheet["A8"] = "Timestamp"
     worksheet["B8"] = "Value"
-    worksheet["A9"] = plot_studio_process_formula(1000)
     worksheet["D7"] = "MEASUREMENT TREND"
     worksheet["D8"] = "Sample"
     worksheet["E8"] = "Value"
-    worksheet["D9"] = plot_studio_measurement_formula(1000)
     worksheet["G8"] = "Available measurements"
-    worksheet["G9"] = plot_studio_measurement_choices_formula(1000)
+    metric_array = "{" + ",".join(f'\"{value}\"' for value in PROCESS_METRICS) + "}"
+    process_values = "CHOOSE(MATCH($B$4," + metric_array + ",0)," + ",".join(
+        f"'Bench Log'!${column}$2:${column}$1000" for column in ("D", "E", "F", "G", "H", "I", "J")
+    ) + ")"
+    for output_row in range(9, 101):
+        process_index = excel_plot_row_index("Bench Log", process_values, output_row, "A")
+        measurement_index = excel_plot_row_index(
+            "Measurements", "'Measurements'!$E$2:$E$1000", output_row, "D"
+        )
+        choice_index = excel_plot_row_index(
+            "Measurements", "'Measurements'!$C$2:$C$1000", output_row, "G"
+        )
+        worksheet[f"A{output_row}"] = f'=IFERROR(INDEX(\'Bench Log\'!$B$2:$B$1000,{process_index}),"")'
+        worksheet[f"B{output_row}"] = f'=IFERROR(INDEX({process_values},{process_index}),"")'
+        worksheet[f"D{output_row}"] = f'=IFERROR(INDEX(\'Measurements\'!$B$2:$B$1000,{measurement_index}),"")'
+        worksheet[f"E{output_row}"] = f'=IFERROR(INDEX(\'Measurements\'!$E$2:$E$1000,{measurement_index}),"")'
+        worksheet[f"G{output_row}"] = f'=IFERROR(INDEX(\'Measurements\'!$C$2:$C$1000,{choice_index}),"")'
 
     for row in (1, 7):
         for cell in worksheet[row][:8]:
@@ -810,6 +862,8 @@ def add_validations(workbook: Workbook) -> None:
         ("Equipment Bookings", "equipment_id", "'Equipment'!$A$2:$A$1000", "Choose an existing equipment ID."),
         ("Equipment Bookings", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
         ("Record Signatures", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
+        ("Notebook Sections", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
+        ("Reaction Outcomes", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
     ):
         worksheet = workbook[sheet_name]
         headers = [cell.value for cell in worksheet[1]]
@@ -830,7 +884,8 @@ def add_workflow_note(workbook: Workbook) -> None:
             (
                 "Enter reagents in Master Reagents, one experiment row in "
                 "Experiments, staged quantities in Batch Builder, observations "
-                "in Bench Log, and measurements in Measurements."
+                "in Bench Log, required narrative in Notebook Sections, measurements "
+                "in Measurements, and yield/material closure in Reaction Outcomes."
             ),
             (
                 "Agent Suggestions should be treated as drafts until reviewed "
@@ -843,8 +898,9 @@ def add_workflow_note(workbook: Workbook) -> None:
         cell.alignment = Alignment(wrap_text=True, vertical="top")
     worksheet["A1"].comment = Comment(
         "Enter reagents in Master Reagents, one experiment row in Experiments, "
-        "staged quantities in Batch Builder, observations in Bench Log, and "
-        "measurements in Measurements. Agent Suggestions should be treated as drafts "
+        "staged quantities in Batch Builder, observations in Bench Log, required "
+        "narrative in Notebook Sections, measurements in Measurements, and yield/material "
+        "closure in Reaction Outcomes. Agent Suggestions should be treated as drafts "
         "until reviewed by a human.",
         "lab-notebook-agent",
     )

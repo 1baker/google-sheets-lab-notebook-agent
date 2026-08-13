@@ -128,9 +128,9 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual("EP-001", console["B3"].value)
             self.assertTrue(str(console["B6"].value).startswith("=IF("))
             self.assertEqual("yyyy-mm-dd", console["B9"].number_format)
-            self.assertIn("FILTER", str(console["A30"].value))
-            self.assertIn("MAP(", str(console["A30"].value))
-            self.assertIn("Assign operator", str(console["A30"].value))
+            self.assertIn("RUNNING", str(console["A30"].value))
+            self.assertIn("AGGREGATE", str(console["B30"].value))
+            self.assertIn("Assign operator", str(console["F30"].value))
             self.assertEqual(
                 str(console["A30"].value).count("("),
                 str(console["A30"].value).count(")"),
@@ -138,6 +138,8 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual("COMPLETE", console["G29"].value)
             self.assertEqual("RECORD", console["H29"].value)
             self.assertEqual("0%", console["G30"].number_format)
+            self.assertIn("AGGREGATE", str(workbook["Plot Studio"]["A9"].value))
+            self.assertIn("AGGREGATE", str(workbook["Plot Studio"]["D9"].value))
             self.assertEqual("QUEUE SUMMARY", console["I28"].value)
             self.assertIn("COUNTIFS", str(console["J29"].value))
             self.assertEqual("hidden", workbook["Plot Data"].sheet_state)
@@ -2724,12 +2726,16 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(2, run["summary"]["normalized_result_rows_to_append"])
             self.assertEqual("lab-notebook-agent-daily-log-results.v1", run["daily_log_results_report"]["schema"])
             self.assertEqual(1, run["summary"]["experiment_review_count"])
-            self.assertEqual(2, run["summary"]["preflight_fail_count"])
+            self.assertGreaterEqual(run["summary"]["preflight_fail_count"], 10)
             self.assertEqual(1, run["summary"]["result_limiting_metric_count"])
             self.assertEqual(["EP-001"], run["summary"]["experiments_with_result_limits"])
             review = run["experiment_reviews"][0]
             self.assertEqual("EP-001", review["experiment_id"])
-            self.assertEqual("lab-notebook-agent-experiment-preflight.v1", review["preflight"]["schema"])
+            self.assertEqual("lab-notebook-agent-experiment-preflight.v2", review["preflight"]["schema"])
+            failed_checks = {
+                row["name"] for row in review["preflight"]["checks"] if row["status"] == "fail"
+            }
+            self.assertTrue({"governed_template", "controlled_protocol", "notebook_sections"}.issubset(failed_checks))
             self.assertEqual("lab-notebook-agent-process-material-search.v1", review["material_search"]["schema"])
             roles = {role["role_group"]: role for role in review["material_search"]["roles"]}
             self.assertEqual("M-SKA", roles["monomer"]["candidate_reagents"][0]["reagent_id"])
@@ -3967,6 +3973,45 @@ def set_agent_config(tables: dict[str, list[dict[str, object]]], key: str, value
 
 
 def complete_template_materials(tables: dict[str, list[dict[str, object]]]) -> None:
+    experiment = tables["Experiments"][0]
+    experiment.update(
+        {
+            "operator": "Scientist",
+            "protocol_id": "PROTO-1",
+            "protocol_version": "1.0",
+            "equipment_id": "REACTOR-1",
+            "template_id": "TPL-EMULSION",
+            "template_version": "1.0",
+            "summary": "Run complete; results reviewed.",
+            "completed_at": "2026-06-09T17:00:00",
+            "reviewer": "Reviewer",
+            "reviewed_at": "2026-06-10T09:00:00",
+        }
+    )
+    tables["Protocols"] = [
+        {
+            "protocol_id": "PROTO-1",
+            "name": "Controlled reaction protocol",
+            "version": "1.0",
+            "status": "active",
+            "source_url": "https://example.test/protocol/1.0",
+        }
+    ]
+    tables["Experiment Templates"][0].update(
+        {
+            "owner": "Lab steward",
+            "effective_at": "2026-06-01T09:00:00",
+            "required_capture_sections": "Batch Builder,Notebook Sections,Bench Log,Measurements,Reaction Outcomes",
+            "source_url": "https://example.test/templates/emulsion/1.0",
+        }
+    )
+    tables["Equipment"] = [
+        {
+            "equipment_id": "REACTOR-1",
+            "name": "Reactor 1",
+            "calibration_status": "current",
+        }
+    ]
     for row in tables["Master Reagents"]:
         if row["reagent_id"] == "M-SKA":
             row["molecular_weight_g_mol"] = "156.18"
@@ -3980,6 +4025,58 @@ def complete_template_materials(tables: dict[str, list[dict[str, object]]]) -> N
             row["mass_g"] = "0.2"
         if row["reagent_id"] == "S-SDS":
             row["mass_g"] = "0.1"
+    for row in tables["Batch Builder"]:
+        row.update(
+            {
+                "formula_status": "READY",
+                "effective_actual_mass_g": row.get("planned_mass_g") or "1",
+                "lot": "LOT-1",
+                "recorded_by": "Scientist",
+                "recorded_at": "2026-06-09T10:00:00",
+                "charge_status": "charged",
+            }
+        )
+    for row in tables["Notebook Sections"]:
+        row.update(
+            {
+                "status": "complete",
+                "content": f"Completed {row.get('section_type', 'section')} record.",
+                "authored_by": "Scientist",
+                "authored_at": "2026-06-09T10:00:00",
+                "completed_by": "Scientist",
+                "completed_at": "2026-06-09T17:00:00",
+            }
+        )
+    tables["Raw Data Files"] = [
+        {
+            "raw_file_id": "RAW-1",
+            "experiment_id": "EP-001",
+            "sample_id": "EP-001-L1",
+            "measurement_type": "DLS particle size",
+            "instrument_id": "REACTOR-1",
+            "collected_at": "2026-06-09T16:00:00",
+            "file_name": "ep001-dls.csv",
+            "file_url": "https://example.test/raw/ep001-dls.csv",
+        }
+    ]
+    for row in tables["Measurements"]:
+        row["Raw file ID"] = "RAW-1"
+    tables["Reaction Outcomes"] = [
+        {
+            "experiment_id": "EP-001",
+            "product_sample_id": "EP-001-PRODUCT",
+            "product_name": "Product",
+            "theoretical_product_mass_g": 10,
+            "recovered_product_mass_g": 9,
+            "purity_percent": 98,
+            "appearance": "Uniform",
+            "outcome_status": "complete",
+            "mass_balance_status": "CLOSED",
+            "completed_by": "Scientist",
+            "completed_at": "2026-06-09T17:00:00",
+            "conclusion": "Run met its objective.",
+        }
+    ]
 
 
 def low_confidence_agent_tables(confidence_floor: str) -> dict[str, list[dict[str, object]]]:

@@ -12,6 +12,10 @@ from .batch_builder import (
     google_batch_builder_array_formulas,
 )
 from .material_scaffold import formulation_key
+from .reaction_outcomes import (
+    REACTION_OUTCOME_FORMULA_COLUMNS,
+    google_reaction_outcome_array_formulas,
+)
 from .planning import result_row_key
 from .schema import (
     CONTROLLED_VOCAB_VALIDATIONS,
@@ -73,6 +77,8 @@ CORE_ENTRY_SHEETS = frozenset(
         "Inventory Transactions",
         "Equipment Bookings",
         "Record Signatures",
+        "Notebook Sections",
+        "Reaction Outcomes",
     }
 )
 REFERENCE_SHEETS = frozenset(
@@ -101,6 +107,8 @@ OPTIONAL_EXTENSION_SHEETS = {
     "Inventory Transactions",
     "Equipment Bookings",
     "Record Signatures",
+    "Notebook Sections",
+    "Reaction Outcomes",
     "Audit Log",
 }
 
@@ -115,6 +123,8 @@ FOREIGN_KEY_VALIDATIONS = {
         ("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),
     ),
     "Record Signatures": (("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),),
+    "Notebook Sections": (("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),),
+    "Reaction Outcomes": (("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),),
 }
 
 
@@ -406,6 +416,14 @@ def google_setup_requests_from_metadata(
                 batch_builder_setup_requests(
                     sheet_id,
                     sheet_ids,
+                    validation_end_row=validation_end_row,
+                    is_new=spec.name not in existing_sheet_ids,
+                )
+            )
+        if spec.name == "Reaction Outcomes":
+            requests.extend(
+                reaction_outcomes_setup_requests(
+                    sheet_id,
                     validation_end_row=validation_end_row,
                     is_new=spec.name not in existing_sheet_ids,
                 )
@@ -905,6 +923,64 @@ def reaction_master_setup_requests(
             },
         )
     )
+    return requests
+
+
+def reaction_outcomes_setup_requests(
+    sheet_id: int,
+    *,
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+    is_new: bool = False,
+) -> list[dict[str, Any]]:
+    """Install structured yield and material-closure calculations."""
+
+    headers = list(sheet_by_name("Reaction Outcomes").headers)
+    calculated = set(REACTION_OUTCOME_FORMULA_COLUMNS)
+    requests: list[dict[str, Any]] = []
+    if is_new:
+        spec = sheet_by_name("Reaction Outcomes")
+        requests.append(
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet_id, "rowIndex": 1, "columnIndex": 0},
+                    "rows": [
+                        {
+                            "values": [
+                                google_cell_data(
+                                    values[index] if index < len(values) else "",
+                                    data_type=column_data_type("Reaction Outcomes", column.name),
+                                )
+                                for index, column in enumerate(spec.columns)
+                            ]
+                        }
+                        for values in spec.example_rows
+                    ],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+    for header, formula in google_reaction_outcome_array_formulas(validation_end_row).items():
+        requests.append(
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet_id, "rowIndex": 1, "columnIndex": headers.index(header)},
+                    "rows": [{"values": [{"userEnteredValue": {"formulaValue": formula}}]}],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+    for column_index, header in enumerate(headers):
+        color = (
+            {"red": 0.92, "green": 0.96, "blue": 0.97}
+            if header in calculated
+            else {"red": 1.0, "green": 0.98, "blue": 0.89}
+        )
+        requests.append(
+            repeat_cell_format_request(
+                sheet_id, 1, validation_end_row, column_index, column_index + 1,
+                {"backgroundColor": color, "verticalAlignment": "MIDDLE", "wrapStrategy": "WRAP"},
+            )
+        )
     return requests
 
 

@@ -9,6 +9,7 @@ from .agent import AgentRunConfig, build_agent_report, run_workbook_agent
 from .daily_agent import build_snapshot_daily_agent_run, run_workbook_daily_agent
 from .daily_log_results import apply_daily_log_results_report_to_workbook, build_daily_log_results_report
 from .daily_summary import build_daily_summary_report
+from .emulsion_reaction_sheet import build_ccsp_audit_report, save_ccsp_reaction_workbook
 from .experiment_record import (
     apply_experiment_record_report_to_workbook,
     build_experiment_record_report,
@@ -114,6 +115,20 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--output", default="artifacts/lab_notebook_template.xlsx")
     init_parser.add_argument("--no-examples", action="store_true", help="Do not include seed/example rows.")
 
+    ccsp_reaction_parser = subparsers.add_parser(
+        "ccsp-reaction-sheet",
+        help="Generate the split-view deterministic CCSP emulsion-polymerization reaction sheet.",
+    )
+    ccsp_reaction_parser.add_argument(
+        "--output",
+        default="artifacts/ccsp_emulsion_reaction_v1.xlsx",
+        help="Output .xlsx path.",
+    )
+    ccsp_reaction_parser.add_argument(
+        "--audit-output",
+        help="Optional calculation and source-formula audit JSON path.",
+    )
+
     search_parser = subparsers.add_parser("search-knowledge", help="Search local process knowledge.")
     search_parser.add_argument("query")
     search_parser.add_argument("--knowledge", help="Optional process knowledge JSON file.")
@@ -152,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     preflight_source.add_argument("--workbook", help="Lab notebook .xlsx file.")
     preflight_source.add_argument("--snapshot", help="Google Sheets snapshot JSON file.")
     preflight_parser.add_argument("--experiment-id", required=True)
-    preflight_parser.add_argument("--stage", choices=("planning", "review"), default="planning")
+    preflight_parser.add_argument("--stage", choices=("planning", "review", "archive"), default="planning")
     preflight_parser.add_argument("--output", help="Optional output JSON path. Defaults to stdout.")
 
     record_parser = subparsers.add_parser(
@@ -789,6 +804,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "init":
         path = save_workbook(args.output, include_examples=not args.no_examples)
+        print(path)
+        return 0
+    if args.command == "ccsp-reaction-sheet":
+        path = save_ccsp_reaction_workbook(args.output)
+        if args.audit_output:
+            write_or_print_json(build_ccsp_audit_report(), args.audit_output)
         print(path)
         return 0
     if args.command == "search-knowledge":

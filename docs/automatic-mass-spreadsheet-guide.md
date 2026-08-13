@@ -1,6 +1,6 @@
 # Automatic Reaction Mass Spreadsheet Guide
 
-Contract version: 0.10.0
+Contract version: 0.12.0
 
 ## What the workbook does
 
@@ -25,6 +25,8 @@ visible as separate quantities.
 7. Link the run to an effective **Experiment Templates** version, record
    consumed material in **Inventory Transactions**, and complete signoff in
    **Record Signatures** after the record is finalized.
+8. Complete required narrative in **Notebook Sections**, then record product
+   recovery, isolated yield, and material closure in **Reaction Outcomes**.
 
 ## Choose the calculation mode
 

@@ -73,6 +73,9 @@ def summarize_record_governance(
     templates: list[dict[str, Any]],
     signatures: list[dict[str, Any]],
     inventory_transactions: list[dict[str, Any]],
+    notebook_sections: list[dict[str, Any]] | None = None,
+    measurements: list[dict[str, Any]] | None = None,
+    reaction_outcomes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return the spreadsheet-equivalent template, material, and signoff state."""
 
@@ -98,12 +101,59 @@ def summarize_record_governance(
         signature_status = "SIGNED_UNWITNESSED"
     else:
         signature_status = "SIGNED_WITNESSED"
+    required_sections = [
+        row for row in (notebook_sections or [])
+        if str(row.get("experiment_id", "")).strip() == experiment_id
+        and str(row.get("required", "")).strip().lower() in {"true", "1", "yes"}
+    ]
+    if notebook_sections is None:
+        section_readiness = "NOT_EVALUATED"
+    elif not required_sections:
+        section_readiness = "SECTIONS_MISSING"
+    elif any(str(row.get("status", "")).strip().lower() != "complete" for row in required_sections):
+        section_readiness = "SECTIONS_INCOMPLETE"
+    else:
+        section_readiness = "READY"
+    run_measurements = [
+        row for row in (measurements or [])
+        if str(row.get("Run ID", row.get("experiment_id", ""))).strip() == experiment_id
+    ]
+    if measurements is None:
+        raw_data_readiness = "NOT_EVALUATED"
+    elif not run_measurements:
+        raw_data_readiness = "MEASUREMENTS_MISSING"
+    elif any(not str(row.get("Raw file ID", row.get("raw_file_id", ""))).strip() for row in run_measurements):
+        raw_data_readiness = "RAW_FILE_LINKS_MISSING"
+    else:
+        raw_data_readiness = "READY"
+    outcomes = [
+        row for row in (reaction_outcomes or [])
+        if str(row.get("experiment_id", "")).strip() == experiment_id
+    ]
+    if reaction_outcomes is None:
+        outcome_readiness = "NOT_EVALUATED"
+    elif not outcomes:
+        outcome_readiness = "OUTCOME_MISSING"
+    elif not any(
+        str(row.get("outcome_status", "")).strip().lower() == "complete"
+        and str(row.get("mass_balance_status", "")).strip().upper() == "CLOSED"
+        for row in outcomes
+    ):
+        outcome_readiness = "OUTCOME_INCOMPLETE"
+    else:
+        outcome_readiness = "READY"
     if not template_id:
         governance_status = "TEMPLATE_MISSING"
     elif not effective_template:
         governance_status = "TEMPLATE_NOT_EFFECTIVE"
     elif str(experiment.get("status", "")).strip() != "complete":
         governance_status = "IN_PROGRESS"
+    elif section_readiness not in {"READY", "NOT_EVALUATED"}:
+        governance_status = section_readiness
+    elif raw_data_readiness not in {"READY", "NOT_EVALUATED"}:
+        governance_status = raw_data_readiness
+    elif outcome_readiness not in {"READY", "NOT_EVALUATED"}:
+        governance_status = outcome_readiness
     elif signature_status == "UNSIGNED":
         governance_status = "SIGNOFF_REQUIRED"
     elif signature_status == "SIGNED_UNWITNESSED":
@@ -122,6 +172,9 @@ def summarize_record_governance(
         "template_version": template_version,
         "material_transactions": material_transactions,
         "signature_status": signature_status,
+        "section_readiness": section_readiness,
+        "raw_data_readiness": raw_data_readiness,
+        "outcome_readiness": outcome_readiness,
         "signed_by": latest_signed.get("signer", ""),
         "signed_at": latest_signed.get("signed_at", ""),
         "witnessed_by": latest_witnessed.get("witnessed_by", ""),
@@ -179,7 +232,10 @@ def reaction_master_excel_formula(header: str, row_number: int) -> str:
         "Signed at": f'=IF({run_cell}="","",IFERROR(MAXIFS(\'Record Signatures\'!$E$2:$E$1000,\'Record Signatures\'!$B$2:$B$1000,{run_cell},\'Record Signatures\'!$H$2:$H$1000,"signed"),""))',
         "Witnessed by": f'=IF({run_cell}="","",IFERROR(LOOKUP(2,1/((\'Record Signatures\'!$B$2:$B$1000={run_cell})*(\'Record Signatures\'!$H$2:$H$1000="signed")*(\'Record Signatures\'!$I$2:$I$1000<>"")),\'Record Signatures\'!$I$2:$I$1000),""))',
         "Witnessed at": f'=IF({run_cell}="","",IFERROR(MAXIFS(\'Record Signatures\'!$J$2:$J$1000,\'Record Signatures\'!$B$2:$B$1000,{run_cell},\'Record Signatures\'!$H$2:$H$1000,"signed"),""))',
-        "Governance status": f'=IF({run_cell}="","",IF($AL{row_number}="","TEMPLATE_MISSING",IF(COUNTIFS(\'Experiment Templates\'!$A$2:$A$1000,$AL{row_number},\'Experiment Templates\'!$D$2:$D$1000,$AM{row_number},\'Experiment Templates\'!$E$2:$E$1000,"effective")=0,"TEMPLATE_NOT_EFFECTIVE",IF($F{row_number}<>"complete","IN_PROGRESS",IF($AO{row_number}="UNSIGNED","SIGNOFF_REQUIRED",IF($AO{row_number}="SIGNED_UNWITNESSED","WITNESS_REQUIRED","READY_TO_ARCHIVE"))))))',
+        "Governance status": f'=IF({run_cell}="","",IF($AL{row_number}="","TEMPLATE_MISSING",IF(COUNTIFS(\'Experiment Templates\'!$A$2:$A$1000,$AL{row_number},\'Experiment Templates\'!$D$2:$D$1000,$AM{row_number},\'Experiment Templates\'!$E$2:$E$1000,"effective")=0,"TEMPLATE_NOT_EFFECTIVE",IF($F{row_number}<>"complete","IN_PROGRESS",IF($AU{row_number}<>"READY",$AU{row_number},IF($AV{row_number}<>"READY",$AV{row_number},IF($AW{row_number}<>"READY",$AW{row_number},IF($AO{row_number}="UNSIGNED","SIGNOFF_REQUIRED",IF($AO{row_number}="SIGNED_UNWITNESSED","WITNESS_REQUIRED","READY_TO_ARCHIVE")))))))))',
+        "Section readiness": f'=IF({run_cell}="","",IF(COUNTIFS(\'Notebook Sections\'!$A$2:$A$1000,{run_cell},\'Notebook Sections\'!$F$2:$F$1000,"true")=0,"SECTIONS_MISSING",IF(COUNTIFS(\'Notebook Sections\'!$A$2:$A$1000,{run_cell},\'Notebook Sections\'!$F$2:$F$1000,"true",\'Notebook Sections\'!$G$2:$G$1000,"<>complete")>0,"SECTIONS_INCOMPLETE","READY")))',
+        "Raw data readiness": f'=IF({run_cell}="","",IF(COUNTIF(Measurements!$A$2:$A$1000,{run_cell})=0,"MEASUREMENTS_MISSING",IF(COUNTIFS(Measurements!$A$2:$A$1000,{run_cell},Measurements!$K$2:$K$1000,"")>0,"RAW_FILE_LINKS_MISSING","READY")))',
+        "Outcome readiness": f'=IF({run_cell}="","",IF(COUNTIF(\'Reaction Outcomes\'!$A$2:$A$1000,{run_cell})=0,"OUTCOME_MISSING",IF(COUNTIFS(\'Reaction Outcomes\'!$A$2:$A$1000,{run_cell},\'Reaction Outcomes\'!$S$2:$S$1000,"complete",\'Reaction Outcomes\'!$T$2:$T$1000,"CLOSED")=0,"OUTCOME_INCOMPLETE","READY")))',
     }
     try:
         return formulas[header]
@@ -223,7 +279,10 @@ def google_reaction_master_array_formulas(end_row: int = 1000) -> dict[str, str]
             "Signed at": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IFNA(MAXIFS(\'Record Signatures\'!E2:E{end_row},\'Record Signatures\'!B2:B{end_row},id,\'Record Signatures\'!H2:H{end_row},"signed"),""))))',
             "Witnessed by": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IFNA(LOOKUP(2,1/((\'Record Signatures\'!B2:B{end_row}=id)*(\'Record Signatures\'!H2:H{end_row}="signed")*(\'Record Signatures\'!I2:I{end_row}<>"")),\'Record Signatures\'!I2:I{end_row}),""))))',
             "Witnessed at": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IFNA(MAXIFS(\'Record Signatures\'!J2:J{end_row},\'Record Signatures\'!B2:B{end_row},id,\'Record Signatures\'!H2:H{end_row},"signed"),""))))',
-            "Governance status": f'=MAP(A2:A{end_row},F2:F{end_row},AL2:AL{end_row},AM2:AM{end_row},AO2:AO{end_row},LAMBDA(id,runstatus,template,version,signature,IF(id="","",IF(template="","TEMPLATE_MISSING",IF(COUNTIFS(\'Experiment Templates\'!A2:A{end_row},template,\'Experiment Templates\'!D2:D{end_row},version,\'Experiment Templates\'!E2:E{end_row},"effective")=0,"TEMPLATE_NOT_EFFECTIVE",IF(runstatus<>"complete","IN_PROGRESS",IF(signature="UNSIGNED","SIGNOFF_REQUIRED",IF(signature="SIGNED_UNWITNESSED","WITNESS_REQUIRED","READY_TO_ARCHIVE"))))))))',
+            "Governance status": f'=MAP(A2:A{end_row},F2:F{end_row},AL2:AL{end_row},AM2:AM{end_row},AO2:AO{end_row},AU2:AU{end_row},AV2:AV{end_row},AW2:AW{end_row},LAMBDA(id,runstatus,template,version,signature,sections,rawdata,outcome,IF(id="","",IF(template="","TEMPLATE_MISSING",IF(COUNTIFS(\'Experiment Templates\'!A2:A{end_row},template,\'Experiment Templates\'!D2:D{end_row},version,\'Experiment Templates\'!E2:E{end_row},"effective")=0,"TEMPLATE_NOT_EFFECTIVE",IF(runstatus<>"complete","IN_PROGRESS",IF(sections<>"READY",sections,IF(rawdata<>"READY",rawdata,IF(outcome<>"READY",outcome,IF(signature="UNSIGNED","SIGNOFF_REQUIRED",IF(signature="SIGNED_UNWITNESSED","WITNESS_REQUIRED","READY_TO_ARCHIVE")))))))))))',
+            "Section readiness": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IF(COUNTIFS(\'Notebook Sections\'!A2:A{end_row},id,\'Notebook Sections\'!F2:F{end_row},"true")=0,"SECTIONS_MISSING",IF(COUNTIFS(\'Notebook Sections\'!A2:A{end_row},id,\'Notebook Sections\'!F2:F{end_row},"true",\'Notebook Sections\'!G2:G{end_row},"<>complete")>0,"SECTIONS_INCOMPLETE","READY")))))',
+            "Raw data readiness": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IF(COUNTIF(Measurements!A2:A{end_row},id)=0,"MEASUREMENTS_MISSING",IF(COUNTIFS(Measurements!A2:A{end_row},id,Measurements!K2:K{end_row},"")>0,"RAW_FILE_LINKS_MISSING","READY")))))',
+            "Outcome readiness": f'=MAP(A2:A{end_row},LAMBDA(id,IF(id="","",IF(COUNTIF(\'Reaction Outcomes\'!A2:A{end_row},id)=0,"OUTCOME_MISSING",IF(COUNTIFS(\'Reaction Outcomes\'!A2:A{end_row},id,\'Reaction Outcomes\'!S2:S{end_row},"complete",\'Reaction Outcomes\'!T2:T{end_row},"CLOSED")=0,"OUTCOME_INCOMPLETE","READY")))))',
         }
     )
     return formulas
@@ -237,18 +296,18 @@ def plot_studio_process_formula(end_row: int = 1000) -> str:
     )
     chosen = f"CHOOSE(MATCH($B$4,{metric_array},0),{value_ranges})"
     return (
-        '=IFERROR(FILTER({\'Bench Log\'!$B$2:$B$'
+        '=IFERROR(FILTER(HSTACK(\'Bench Log\'!$B$2:$B$'
         f'{end_row},{chosen}'
-        "},'Bench Log'!$A$2:$A$"
+        "),'Bench Log'!$A$2:$A$"
         f'{end_row}=$B$3,{chosen}<>""),{{"No data",""}})'
     )
 
 
 def plot_studio_measurement_formula(end_row: int = 1000) -> str:
     return (
-        '=IFERROR(FILTER({\'Measurements\'!$B$2:$B$'
+        '=IFERROR(FILTER(HSTACK(\'Measurements\'!$B$2:$B$'
         f'{end_row},\'Measurements\'!$E$2:$E${end_row}'
-        "},'Measurements'!$A$2:$A$"
+        "),'Measurements'!$A$2:$A$"
         f'{end_row}=$B$3,\'Measurements\'!$C$2:$C${end_row}=$B$5,'
         f'\'Measurements\'!$E$2:$E${end_row}<>""),{{"No data",""}})'
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-WORKBOOK_CONTRACT_VERSION = "0.10.0"
+WORKBOOK_CONTRACT_VERSION = "0.12.0"
 
 
 @dataclass(frozen=True)
@@ -360,6 +360,30 @@ SIGNATURE_STATUS = (
     "superseded",
 )
 
+NOTEBOOK_SECTION_TYPES = (
+    "objective",
+    "safety",
+    "setup",
+    "procedure",
+    "observations",
+    "workup",
+    "results",
+    "conclusion",
+)
+
+NOTEBOOK_SECTION_STATUS = (
+    "planned",
+    "in_progress",
+    "complete",
+    "not_applicable",
+)
+
+REACTION_OUTCOME_STATUS = (
+    "draft",
+    "complete",
+    "needs_review",
+)
+
 CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "Master Reagents": {
         "category": REAGENT_CATEGORIES,
@@ -427,6 +451,12 @@ CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
         "signature_type": SIGNATURE_TYPES,
         "status": SIGNATURE_STATUS,
     },
+    "Notebook Sections": {
+        "section_type": NOTEBOOK_SECTION_TYPES,
+        "required": ("true", "false"),
+        "status": NOTEBOOK_SECTION_STATUS,
+    },
+    "Reaction Outcomes": {"outcome_status": REACTION_OUTCOME_STATUS},
     "Audit Log": {"action": AUDIT_ACTIONS},
 }
 
@@ -480,6 +510,9 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("Witnessed by", "Most recent independent witness."),
             Column("Witnessed at", "Most recent witness timestamp."),
             Column("Governance status", "Template and signoff readiness; not a regulatory compliance certification."),
+            Column("Section readiness", "READY or the first required notebook-section completion problem."),
+            Column("Raw data readiness", "READY or a missing measurement/raw-file provenance problem."),
+            Column("Outcome readiness", "READY or a reaction outcome/material-closure problem."),
         ),
     ),
     SheetSpec(
@@ -597,6 +630,7 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("template_version", "Effective template version instantiated for the run."),
             Column("review_process", "Named review route such as PI review or independent witness."),
             Column("record_fingerprint", "Optional SHA-256 or other stable record fingerprint captured at signoff."),
+            Column("protocol_version", "Exact controlled protocol version used for this run."),
         ),
         example_rows=(
             (
@@ -1160,7 +1194,10 @@ SHEETS: tuple[SheetSpec, ...] = (
             for value in RAW_FILE_PARSER_STATUS
         )
         + tuple(("audit_action", value, "Audit trail action.") for value in AUDIT_ACTIONS)
-        + tuple(("inventory_status", value, "Reagent inventory state.") for value in INVENTORY_STATUS),
+        + tuple(("inventory_status", value, "Reagent inventory state.") for value in INVENTORY_STATUS)
+        + tuple(("notebook_section_type", value, "Notebook section type.") for value in NOTEBOOK_SECTION_TYPES)
+        + tuple(("notebook_section_status", value, "Notebook section completion state.") for value in NOTEBOOK_SECTION_STATUS)
+        + tuple(("reaction_outcome_status", value, "Reaction outcome review state.") for value in REACTION_OUTCOME_STATUS),
     ),
     SheetSpec(
         name="Agent Config",
@@ -1362,6 +1399,67 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("source", "Manual entry, Batch Builder, import, or instrument source."),
             Column("notes", "Consumption, adjustment, or transfer context."),
         ),
+    ),
+    SheetSpec(
+        name="Notebook Sections",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("section_id", "Stable section ID within the experiment.", True),
+            Column("sequence", "Display and execution order."),
+            Column("section_type", "Objective, safety, setup, procedure, observations, workup, results, or conclusion.", True),
+            Column("title", "Scientist-facing section title.", True),
+            Column("required", "true when this section must be completed before closeout.", True),
+            Column("status", "planned, in_progress, complete, or not_applicable.", True),
+            Column("content", "Narrative, instruction, observation, or interpretation."),
+            Column("attachment_url", "Link to a photo, drawing, file, or supporting folder."),
+            Column("authored_by", "Person who authored or last revised the section."),
+            Column("authored_at", "Timestamp of the authored revision."),
+            Column("completed_by", "Person who completed the section."),
+            Column("completed_at", "Section completion timestamp."),
+            Column("notes", "Review, exception, or migration notes."),
+        ),
+        example_rows=(
+            ("EP-001", "EP-001-SEC-001", 1, "objective", "Objective and hypothesis", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-002", 2, "safety", "Hazards and controls", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-003", 3, "setup", "Equipment and setup", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-004", 4, "procedure", "Procedure and operating limits", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-005", 5, "observations", "Contemporaneous observations", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-006", 6, "workup", "Workup and isolation", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-007", 7, "results", "Results and characterization", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-008", 8, "conclusion", "Conclusion and next step", "true", "planned", "", "", "", "", "", "", ""),
+        ),
+    ),
+    SheetSpec(
+        name="Reaction Outcomes",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("product_sample_id", "Linked product sample or batch identifier."),
+            Column("product_name", "Product name or reaction product label.", True),
+            Column("theoretical_product_mass_g", "Calculated or verified theoretical product mass in grams."),
+            Column("recovered_product_mass_g", "Isolated or recovered product mass in grams."),
+            Column("isolated_yield_percent", "Calculated recovered product divided by theoretical product mass."),
+            Column("sampled_mass_g", "Mass removed as retained samples and not included in recovered product."),
+            Column("waste_mass_g", "Measured discarded, filtered, or unusable mass."),
+            Column("process_loss_mass_g", "Measured transfer, vessel, or handling loss."),
+            Column("expected_nonproduct_loss_g", "Known volatile, wash, vent, or stoichiometric loss included in closure."),
+            Column("balance_tolerance_percent", "Allowed absolute unaccounted mass as percent of actual input mass."),
+            Column("actual_input_mass_g", "Calculated sum of effective actual Batch Builder charge mass."),
+            Column("accounted_mass_g", "Calculated product, sample, waste, process-loss, and expected-loss total."),
+            Column("unaccounted_mass_g", "Calculated actual input minus accounted mass."),
+            Column("material_balance_closure_percent", "Calculated accounted mass divided by actual input mass."),
+            Column("purity_percent", "Measured or estimated product purity percent."),
+            Column("appearance", "Color, phase, texture, clarity, or other product appearance."),
+            Column("product_lot", "Stable product lot or batch identifier."),
+            Column("outcome_status", "draft, complete, or needs_review.", True),
+            Column("mass_balance_status", "Calculated closure readiness and tolerance result."),
+            Column("completed_by", "Scientist finalizing the reaction outcome."),
+            Column("completed_at", "Outcome completion timestamp."),
+            Column("conclusion", "Concise result, interpretation, and recommended next step."),
+        ),
+        example_rows=((
+            "EP-001", "EP-001-PRODUCT", "Reaction product", "", "", "", "", "",
+            "", "", 5, "", "", "", "", "", "", "", "draft", "", "", "", "",
+        ),),
     ),
     SheetSpec(
         name="Equipment Bookings",
@@ -1630,6 +1728,24 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
     "Samples": frozenset({"amount"}),
     "Specifications": frozenset({"target_value", "lower_limit", "upper_limit"}),
     "Inventory Transactions": frozenset({"quantity", "balance_after"}),
+    "Notebook Sections": frozenset({"sequence"}),
+    "Reaction Outcomes": frozenset(
+        {
+            "theoretical_product_mass_g",
+            "recovered_product_mass_g",
+            "isolated_yield_percent",
+            "sampled_mass_g",
+            "waste_mass_g",
+            "process_loss_mass_g",
+            "expected_nonproduct_loss_g",
+            "balance_tolerance_percent",
+            "actual_input_mass_g",
+            "accounted_mass_g",
+            "unaccounted_mass_g",
+            "material_balance_closure_percent",
+            "purity_percent",
+        }
+    ),
 }
 
 DATE_COLUMNS: dict[str, frozenset[str]] = {
@@ -1673,6 +1789,8 @@ DATETIME_COLUMNS: dict[str, frozenset[str]] = {
     "Inventory Transactions": frozenset({"occurred_at"}),
     "Equipment Bookings": frozenset({"starts_at", "ends_at", "reminder_at"}),
     "Record Signatures": frozenset({"signed_at", "witnessed_at"}),
+    "Notebook Sections": frozenset({"authored_at", "completed_at"}),
+    "Reaction Outcomes": frozenset({"completed_at"}),
     "Audit Log": frozenset({"occurred_at"}),
 }
 

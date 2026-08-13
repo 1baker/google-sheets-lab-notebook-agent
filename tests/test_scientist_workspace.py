@@ -8,7 +8,13 @@ from openpyxl import load_workbook
 
 from lab_notebook_agent.google_sheets import (
     google_scientist_workspace_upgrade_requests,
+    reaction_outcomes_setup_requests,
 )
+from lab_notebook_agent.reaction_outcomes import (
+    excel_reaction_outcome_formula,
+    google_reaction_outcome_array_formulas,
+)
+from lab_notebook_agent.schema import sheet_by_name
 from lab_notebook_agent.scientist_workspace import (
     daily_log_rows_from_tables,
     google_reaction_master_array_formulas,
@@ -82,6 +88,10 @@ class ScientistWorkspaceTests(unittest.TestCase):
         self.assertIn("RATIO_MISMATCH", google["Stoichiometry status"])
         self.assertIn("Record Signatures", reaction_master_excel_formula("Signature status", 2))
         self.assertIn("Experiment Templates", reaction_master_excel_formula("Governance status", 2))
+        self.assertIn("Notebook Sections", reaction_master_excel_formula("Section readiness", 2))
+        self.assertIn("RAW_FILE_LINKS_MISSING", google["Raw data readiness"])
+        self.assertIn("Reaction Outcomes", google["Outcome readiness"])
+        self.assertIn("$AU2", reaction_master_excel_formula("Governance status", 2))
         self.assertIn("READY_TO_ARCHIVE", google["Governance status"])
         self.assertTrue(all(value.count("(") == value.count(")") for value in google.values()))
 
@@ -110,11 +120,33 @@ class ScientistWorkspaceTests(unittest.TestCase):
                 for row in workbook["Workbook Metadata"].iter_rows(min_row=2)
                 if row[0].value
             }
-            self.assertEqual("0.10.0", metadata["contract_version"])
+            self.assertEqual("0.12.0", metadata["contract_version"])
             self.assertEqual("Stoichiometry status", workbook["Reaction Master"]["AK1"].value)
             self.assertEqual("Recovered mass (g)", workbook["Bench Log"]["R1"].value)
             self.assertEqual("Governance status", workbook["Reaction Master"]["AT1"].value)
+            self.assertEqual("Section readiness", workbook["Reaction Master"]["AU1"].value)
+            self.assertEqual("Raw data readiness", workbook["Reaction Master"]["AV1"].value)
+            self.assertEqual("Outcome readiness", workbook["Reaction Master"]["AW1"].value)
             self.assertTrue({"Experiment Templates", "Inventory Transactions", "Equipment Bookings", "Record Signatures"}.issubset(workbook.sheetnames))
+            self.assertTrue({"Notebook Sections", "Reaction Outcomes"}.issubset(workbook.sheetnames))
+            self.assertEqual("visible", workbook["Notebook Sections"].sheet_state)
+            self.assertEqual("visible", workbook["Reaction Outcomes"].sheet_state)
+            self.assertIn("Batch Builder", workbook["Reaction Outcomes"]["L2"].value)
+            self.assertEqual("0.0%", workbook["Reaction Outcomes"]["F2"].number_format)
+
+    def test_reaction_outcomes_calculate_yield_and_mass_closure(self) -> None:
+        self.assertIn("$E2/$D2", excel_reaction_outcome_formula("isolated_yield_percent", 2))
+        self.assertIn("'Batch Builder'!$BB$2:$BB$1000", excel_reaction_outcome_formula("actual_input_mass_g", 2))
+        self.assertIn("OVER_ACCOUNTED", excel_reaction_outcome_formula("mass_balance_status", 2))
+        google = google_reaction_outcome_array_formulas()
+        self.assertIn("MAP(A2:A1000", google["actual_input_mass_g"])
+        self.assertIn("MISSING_TOLERANCE", google["mass_balance_status"])
+        self.assertTrue(all(value.count("(") == value.count(")") for value in google.values()))
+
+        requests = reaction_outcomes_setup_requests(900, is_new=True)
+        self.assertTrue(any("formulaValue" in str(request) for request in requests))
+        self.assertTrue(any("EP-001-PRODUCT" in str(request) for request in requests))
+        self.assertEqual("content", sheet_by_name("Notebook Sections").headers[7])
 
     def test_record_governance_requires_effective_template_signoff_and_witness(self) -> None:
         experiment = {"experiment_id": "EP-10", "status": "complete", "template_id": "TPL-1", "template_version": "2"}
