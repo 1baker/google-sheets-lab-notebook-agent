@@ -21,7 +21,7 @@ class WorkbookMigrationTests(unittest.TestCase):
 
     def test_contract_adds_operational_lineage_and_qc_tabs(self) -> None:
         contract = workbook_contract()
-        self.assertEqual("0.7.0", contract["version"])
+        self.assertEqual("0.10.0", contract["version"])
         self.assertEqual(RUN_CONSOLE_SHEET, contract["views"][0]["name"])
         self.assertEqual("B3", contract["views"][0]["active_experiment_cell"])
         self.assertEqual("A30", contract["views"][0]["active_queue_anchor"])
@@ -42,6 +42,10 @@ class WorkbookMigrationTests(unittest.TestCase):
                 "Deviations",
                 "Raw Data Files",
                 "Audit Log",
+                "Experiment Templates",
+                "Inventory Transactions",
+                "Equipment Bookings",
+                "Record Signatures",
             }.issubset(names)
         )
         results = next(
@@ -88,6 +92,18 @@ class WorkbookMigrationTests(unittest.TestCase):
             )
         )
         self.assertTrue(any("setBasicFilter" in request for request in requests))
+
+    def test_setup_adds_eln_governance_foreign_key_validations(self) -> None:
+        requests = google_setup_requests_from_metadata({"properties": {}, "sheets": []})
+        signature_id = generated_sheet_ids_for_missing({})["Record Signatures"]
+        inventory_id = generated_sheet_ids_for_missing({})["Inventory Transactions"]
+        range_validations = [
+            request["setDataValidation"]
+            for request in requests
+            if request.get("setDataValidation", {}).get("rule", {}).get("condition", {}).get("type") == "ONE_OF_RANGE"
+        ]
+        self.assertTrue(any(item["range"]["sheetId"] == signature_id and "Experiments" in str(item) for item in range_validations))
+        self.assertTrue(any(item["range"]["sheetId"] == inventory_id and "Master Reagents" in str(item) for item in range_validations))
 
     def test_setup_builds_formula_driven_run_console_and_bounded_presentation(self) -> None:
         requests = google_setup_requests_from_metadata({"properties": {}, "sheets": []})
@@ -177,7 +193,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
                 (
                     "contract_version",
-                    "0.7.0",
+                    "0.10.0",
                     "Schema version currently applied to this workbook.",
                 ),
                 (
@@ -197,7 +213,7 @@ class WorkbookMigrationTests(unittest.TestCase):
                 ),
             )
         ]
-        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.7.0"}]
+        seeded_tables["Audit Log"] = [{"audit_id": "MIGRATION-0.10.0"}]
         rerun = google_contract_migration_requests(
             seeded_tables,
             self.sheet_ids,

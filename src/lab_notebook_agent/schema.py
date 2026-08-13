@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-WORKBOOK_CONTRACT_VERSION = "0.7.0"
+WORKBOOK_CONTRACT_VERSION = "0.10.0"
 
 
 @dataclass(frozen=True)
@@ -134,6 +134,31 @@ BATCH_CHARGE_STATUS = (
     "prepared",
     "charged",
     "skipped",
+)
+
+BATCH_CALCULATION_MODES = (
+    "direct_mass",
+    "batch_wt_percent",
+    "pphm",
+    "target_active_mass",
+    "equivalents",
+    "functional_equivalents",
+)
+
+BATCH_WEIGHING_METHODS = (
+    "direct",
+    "by_difference",
+)
+
+FUNCTIONAL_GROUPS = (
+    "active_H",
+    "NCO",
+    "hydroxyl",
+    "amine",
+    "acid",
+    "epoxide",
+    "alkene",
+    "other",
 )
 
 EXPERIMENT_STATUS = (
@@ -294,17 +319,66 @@ INVENTORY_STATUS = (
     "unknown",
 )
 
+TEMPLATE_STATES = (
+    "draft",
+    "effective",
+    "superseded",
+    "withdrawn",
+)
+
+INVENTORY_TRANSACTION_TYPES = (
+    "consume",
+    "add",
+    "adjust",
+    "transfer",
+    "dispose",
+)
+
+EQUIPMENT_EVENT_TYPES = (
+    "usage",
+    "calibration",
+    "maintenance",
+    "other",
+)
+
+BOOKING_STATUS = (
+    "planned",
+    "confirmed",
+    "complete",
+    "cancelled",
+)
+
+SIGNATURE_TYPES = (
+    "author_signoff",
+    "reviewer_approval",
+)
+
+SIGNATURE_STATUS = (
+    "draft",
+    "signed",
+    "revoked",
+    "superseded",
+)
+
 CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "Master Reagents": {
         "category": REAGENT_CATEGORIES,
         "inventory_status": INVENTORY_STATUS,
+        "functional_group": FUNCTIONAL_GROUPS,
     },
-    "Experiments": {"process_type": PROCESS_TYPES, "status": EXPERIMENT_STATUS},
+    "Experiments": {
+        "process_type": PROCESS_TYPES,
+        "status": EXPERIMENT_STATUS,
+        "stoichiometric_numerator_group": FUNCTIONAL_GROUPS,
+        "stoichiometric_denominator_group": FUNCTIONAL_GROUPS,
+    },
     "Batch Builder": {
         "stage": BATCH_STAGES,
         "charge_type": BATCH_CHARGE_TYPES,
         "target_role": FORMULATION_ROLES,
         "charge_status": BATCH_CHARGE_STATUS,
+        "calculation_mode": BATCH_CALCULATION_MODES,
+        "weighing_method": BATCH_WEIGHING_METHODS,
     },
     "Bench Log": {"Stage": PROCESS_STAGES},
     "Measurements": {"Quality": RESULT_QUALITY_FLAGS},
@@ -340,6 +414,19 @@ CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "Specifications": {"status": SPECIFICATION_STATUS},
     "Deviations": {"status": DEVIATION_STATUS},
     "Raw Data Files": {"parser_status": RAW_FILE_PARSER_STATUS},
+    "Experiment Templates": {
+        "process_type": PROCESS_TYPES,
+        "state": TEMPLATE_STATES,
+    },
+    "Inventory Transactions": {"transaction_type": INVENTORY_TRANSACTION_TYPES},
+    "Equipment Bookings": {
+        "event_type": EQUIPMENT_EVENT_TYPES,
+        "status": BOOKING_STATUS,
+    },
+    "Record Signatures": {
+        "signature_type": SIGNATURE_TYPES,
+        "status": SIGNATURE_STATUS,
+    },
     "Audit Log": {"action": AUDIT_ACTIONS},
 }
 
@@ -367,6 +454,32 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("Next action", "Formula-derived next notebook action."),
             Column("Reviewer", "Scientist who reviewed the record."),
             Column("Reviewed at", "Record review timestamp."),
+            Column("Target batch mass (g)", "Target total batch mass from Experiments."),
+            Column("Planned vs target (g)", "Planned mass minus target batch mass."),
+            Column("Actual vs target (g)", "Actual mass minus target batch mass."),
+            Column("Mass completion (%)", "Actual mass divided by planned mass."),
+            Column("Out-of-tolerance charges", "Charge rows whose actual mass exceeds tolerance."),
+            Column("Calculation issues", "Charge rows that are not calculation-ready."),
+            Column("Mass plan status", "READY or the first run-level mass-planning problem."),
+            Column("Numerator group", "Functional group in the numerator of the target ratio."),
+            Column("Denominator group", "Functional group in the denominator of the target ratio."),
+            Column("Target equivalent ratio", "Target numerator-to-denominator functional-equivalent ratio."),
+            Column("Planned numerator eq", "Planned functional equivalents in the numerator group."),
+            Column("Planned denominator eq", "Planned functional equivalents in the denominator group."),
+            Column("Planned equivalent ratio", "Planned numerator equivalents divided by denominator equivalents."),
+            Column("Actual numerator eq", "Actual functional equivalents in the numerator group."),
+            Column("Actual denominator eq", "Actual functional equivalents in the denominator group."),
+            Column("Actual equivalent ratio", "Actual numerator equivalents divided by denominator equivalents."),
+            Column("Stoichiometry status", "Readiness of the configured functional-equivalent ratio."),
+            Column("Template ID", "Governed experiment template selected in Experiments."),
+            Column("Template version", "Selected governed template version."),
+            Column("Material transactions", "Count of linked inventory consumption or movement events."),
+            Column("Signature status", "UNSIGNED, SIGNED_UNWITNESSED, or SIGNED_WITNESSED."),
+            Column("Signed by", "Most recent signer for this record."),
+            Column("Signed at", "Most recent signature timestamp."),
+            Column("Witnessed by", "Most recent independent witness."),
+            Column("Witnessed at", "Most recent witness timestamp."),
+            Column("Governance status", "Template and signoff readiness; not a regulatory compliance certification."),
         ),
     ),
     SheetSpec(
@@ -391,6 +504,9 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("expiration_date", "Expiration or retest date."),
             Column("inventory_status", "available, low, expired, quarantined, or unknown."),
             Column("sds_url", "Link to the current safety data sheet."),
+            Column("functional_group", "Functional-equivalent group such as active_H, NCO, acid, or epoxide."),
+            Column("functional_equivalent_weight_g_eq", "Verified grams of active material per functional equivalent."),
+            Column("nominal_functionality", "Nominal reactive functional groups per molecule when known."),
         ),
         example_rows=(
             (
@@ -471,6 +587,16 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("completed_at", "Actual run completion timestamp."),
             Column("reviewer", "Person who reviewed the completed record."),
             Column("reviewed_at", "Record review timestamp."),
+            Column("target_batch_mass_g", "Target total as-supplied batch mass in grams."),
+            Column("default_mass_tolerance_percent", "Default acceptable absolute charge error percent."),
+            Column("stoichiometric_numerator_group", "Functional group used as the numerator of the reaction ratio."),
+            Column("stoichiometric_denominator_group", "Functional group used as the denominator of the reaction ratio."),
+            Column("target_equivalent_ratio", "Target numerator equivalents divided by denominator equivalents."),
+            Column("equivalent_ratio_tolerance_percent", "Allowed absolute percent deviation from the target equivalent ratio."),
+            Column("template_id", "Governed Experiment Templates identifier used for the run."),
+            Column("template_version", "Effective template version instantiated for the run."),
+            Column("review_process", "Named review route such as PI review or independent witness."),
+            Column("record_fingerprint", "Optional SHA-256 or other stable record fingerprint captured at signoff."),
         ),
         example_rows=(
             (
@@ -483,6 +609,14 @@ SHEETS: tuple[SheetSpec, ...] = (
                 "",
                 "",
                 "planned",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
                 "",
                 "",
                 "",
@@ -530,6 +664,30 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("equivalent_basis_mmol", "Input reference amount used for equivalents."),
             Column("equivalents", "Calculated planned mmol divided by the equivalent basis."),
             Column("actual_moles_mmol", "Calculated actual active amount in mmol."),
+            Column("calculation_mode", "Direct mass, batch wt%, pphm, target active mass, molar equivalents, or functional equivalents.", True),
+            Column("recipe_wt_percent", "Input as-supplied recipe weight percent of target batch mass."),
+            Column("experiment_target_mass_g", "Calculated target batch mass from Experiments."),
+            Column("target_active_mass_g", "Input active-material mass target."),
+            Column("target_equivalents", "Input target equivalents relative to equivalent basis."),
+            Column("mass_tolerance_percent", "Optional row-specific absolute mass error tolerance percent."),
+            Column("experiment_default_tolerance_percent", "Calculated default tolerance from Experiments."),
+            Column("mass_variance_percent", "Calculated actual-minus-planned mass percent."),
+            Column("within_tolerance", "PASS or FAIL after actual mass is recorded."),
+            Column("formula_status", "Calculation readiness or first actionable missing input."),
+            Column("functional_group", "Calculated functional group from Master Reagents."),
+            Column("functional_equivalent_weight_g_eq", "Calculated grams per functional equivalent from Master Reagents."),
+            Column("target_functional_equivalents", "Input functional equivalents for functional-equivalents mode."),
+            Column("planned_functional_equivalents", "Calculated active mass divided by functional equivalent weight."),
+            Column("actual_functional_equivalents", "Calculated effective actual active mass divided by functional equivalent weight."),
+            Column("weighing_method", "Direct scale entry or source-container mass by difference.", True),
+            Column("source_container_before_g", "Source container mass before charging."),
+            Column("source_container_after_g", "Source container mass after charging."),
+            Column("actual_mass_from_difference_g", "Calculated before-minus-after delivered mass."),
+            Column("effective_actual_mass_g", "Calculated actual mass selected from direct or by-difference weighing."),
+            Column("carrier_reagent_id", "Optional reagent ID for the inactive carrier in a stock or masterbatch."),
+            Column("planned_carrier_mass_g", "Calculated planned inactive carrier contribution."),
+            Column("actual_carrier_mass_g", "Calculated actual inactive carrier contribution."),
+            Column("weighing_status", "Actual-mass entry readiness or first weighing problem."),
         ),
         example_rows=(
             (
@@ -568,6 +726,11 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("Observation / action", "What happened, what was seen, or what was done.", True),
             Column("Issue tags", "Short comma-separated issue tags."),
             Column("Attachment link", "Link to a photo, instrument file, or folder."),
+            Column("Pressure (psi)", "Observed reactor or line pressure."),
+            Column("Jacket / oil temperature (°C)", "Observed jacket, bath, or oil temperature."),
+            Column("Torque / power (W)", "Observed mixer torque or power when available."),
+            Column("Cumulative addition (g)", "Cumulative feed or addition mass at this timestamp."),
+            Column("Recovered mass (g)", "Recovered product or sample mass."),
         ),
         example_rows=((
             "EP-001", "2026-06-09T14:35:00", "feed", 70, 250, "", "", 420,
@@ -1157,6 +1320,85 @@ SHEETS: tuple[SheetSpec, ...] = (
         ),
     ),
     SheetSpec(
+        name="Experiment Templates",
+        columns=(
+            Column("template_id", "Stable governed template identifier.", True),
+            Column("name", "Scientist-facing template name.", True),
+            Column("process_type", "Process type this template supports."),
+            Column("version", "Controlled template version.", True),
+            Column("state", "draft, effective, superseded, or withdrawn.", True),
+            Column("owner", "Template owner or steward."),
+            Column("effective_at", "Timestamp this version became effective."),
+            Column("supersedes_version", "Prior version replaced by this version."),
+            Column("required_capture_sections", "Comma-separated required sections or tables."),
+            Column("default_protocol_id", "Protocol automatically associated with new runs."),
+            Column("review_process", "Default review and witnessing route."),
+            Column("source_url", "Controlled template or guidance link."),
+            Column("change_summary", "What changed from the prior version."),
+            Column("notes", "Template usage notes."),
+        ),
+        example_rows=((
+            "TPL-EMULSION", "Emulsion polymerization reaction", "emulsion polymerization",
+            "1.0", "effective", "", "", "", "Batch Builder,Bench Log,Measurements",
+            "", "PI review", "", "Seed template; govern locally before routine use.", "",
+        ),),
+    ),
+    SheetSpec(
+        name="Inventory Transactions",
+        columns=(
+            Column("transaction_id", "Stable append-only material event ID.", True),
+            Column("occurred_at", "When the material event occurred.", True),
+            Column("reagent_id", "Linked Master Reagents ID.", True),
+            Column("experiment_id", "Experiment consuming or producing the material."),
+            Column("charge_id", "Linked Batch Builder charge when applicable."),
+            Column("transaction_type", "consume, add, adjust, transfer, or dispose.", True),
+            Column("quantity", "Signed event quantity; use positive values with transaction type."),
+            Column("units", "Quantity units."),
+            Column("from_location", "Source location or container."),
+            Column("to_location", "Destination location or container."),
+            Column("lot", "Material lot or batch."),
+            Column("performed_by", "Person recording the event."),
+            Column("balance_after", "Verified stock balance after the event when available."),
+            Column("source", "Manual entry, Batch Builder, import, or instrument source."),
+            Column("notes", "Consumption, adjustment, or transfer context."),
+        ),
+    ),
+    SheetSpec(
+        name="Equipment Bookings",
+        columns=(
+            Column("booking_id", "Stable equipment booking ID.", True),
+            Column("equipment_id", "Linked Equipment ID.", True),
+            Column("experiment_id", "Experiment using the equipment."),
+            Column("event_type", "usage, calibration, maintenance, or other.", True),
+            Column("title", "Short booking purpose.", True),
+            Column("starts_at", "Booking start timestamp.", True),
+            Column("ends_at", "Booking end timestamp.", True),
+            Column("assigned_to", "Responsible scientist or technician."),
+            Column("status", "planned, confirmed, complete, or cancelled."),
+            Column("reminder_at", "Optional reminder timestamp."),
+            Column("notes", "Preparation, calibration, or maintenance notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Record Signatures",
+        columns=(
+            Column("signature_id", "Stable signature event ID.", True),
+            Column("experiment_id", "Experiment record being signed.", True),
+            Column("signature_type", "author_signoff or reviewer_approval.", True),
+            Column("signer", "Person applying the signature.", True),
+            Column("signed_at", "Signature timestamp.", True),
+            Column("meaning", "Meaning of the signature or approval."),
+            Column("record_fingerprint", "Fingerprint of the reviewed record at signoff."),
+            Column("status", "draft, signed, revoked, or superseded.", True),
+            Column("witnessed_by", "Independent witness when required."),
+            Column("witnessed_at", "Witness timestamp."),
+            Column("witness_meaning", "Meaning of the witness confirmation."),
+            Column("supersedes_signature_id", "Prior signature replaced by this event."),
+            Column("reason", "Reason for revocation, supersession, or correction."),
+            Column("notes", "Additional signoff context."),
+        ),
+    ),
+    SheetSpec(
         name="Audit Log",
         columns=(
             Column("audit_id", "Stable audit event ID.", True),
@@ -1178,12 +1420,38 @@ SHEETS: tuple[SheetSpec, ...] = (
 RUN_CONSOLE_SHEET = "Run Console"
 
 NUMBER_COLUMNS: dict[str, frozenset[str]] = {
+    "Reaction Master": frozenset(
+        {
+            "Planned mass (g)",
+            "Actual mass (g)",
+            "Mass variance (g)",
+            "Charges recorded",
+            "Bench entries",
+            "Measurements",
+            "Target batch mass (g)",
+            "Planned vs target (g)",
+            "Actual vs target (g)",
+            "Mass completion (%)",
+            "Out-of-tolerance charges",
+            "Calculation issues",
+            "Target equivalent ratio",
+            "Planned numerator eq",
+            "Planned denominator eq",
+            "Planned equivalent ratio",
+            "Actual numerator eq",
+            "Actual denominator eq",
+            "Actual equivalent ratio",
+            "Material transactions",
+        }
+    ),
     "Master Reagents": frozenset(
         {
             "molecular_weight_g_mol",
             "density_g_mL",
             "purity_fraction",
             "concentration",
+            "functional_equivalent_weight_g_eq",
+            "nominal_functionality",
         }
     ),
     "Daily Log": frozenset(
@@ -1240,6 +1508,31 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
             "equivalent_basis_mmol",
             "equivalents",
             "actual_moles_mmol",
+            "recipe_wt_percent",
+            "experiment_target_mass_g",
+            "target_active_mass_g",
+            "target_equivalents",
+            "mass_tolerance_percent",
+            "experiment_default_tolerance_percent",
+            "mass_variance_percent",
+            "functional_equivalent_weight_g_eq",
+            "target_functional_equivalents",
+            "planned_functional_equivalents",
+            "actual_functional_equivalents",
+            "source_container_before_g",
+            "source_container_after_g",
+            "actual_mass_from_difference_g",
+            "effective_actual_mass_g",
+            "planned_carrier_mass_g",
+            "actual_carrier_mass_g",
+        }
+    ),
+    "Experiments": frozenset(
+        {
+            "target_batch_mass_g",
+            "default_mass_tolerance_percent",
+            "target_equivalent_ratio",
+            "equivalent_ratio_tolerance_percent",
         }
     ),
     "Bench Log": frozenset(
@@ -1251,6 +1544,11 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
             "Particle size (nm)",
             "Conversion (%)",
             "Viscosity (cP)",
+            "Pressure (psi)",
+            "Jacket / oil temperature (°C)",
+            "Torque / power (W)",
+            "Cumulative addition (g)",
+            "Recovered mass (g)",
         }
     ),
     "Measurements": frozenset({"Numeric value", "Uncertainty"}),
@@ -1331,6 +1629,7 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
     ),
     "Samples": frozenset({"amount"}),
     "Specifications": frozenset({"target_value", "lower_limit", "upper_limit"}),
+    "Inventory Transactions": frozenset({"quantity", "balance_after"}),
 }
 
 DATE_COLUMNS: dict[str, frozenset[str]] = {
@@ -1343,6 +1642,7 @@ DATE_COLUMNS: dict[str, frozenset[str]] = {
 }
 
 DATETIME_COLUMNS: dict[str, frozenset[str]] = {
+    "Reaction Master": frozenset({"Last activity", "Reviewed at", "Signed at", "Witnessed at"}),
     "Experiments": frozenset(
         {
             "source_modified_at",
@@ -1369,6 +1669,10 @@ DATETIME_COLUMNS: dict[str, frozenset[str]] = {
     "Samples": frozenset({"collected_at"}),
     "Deviations": frozenset({"occurred_at", "closed_at"}),
     "Raw Data Files": frozenset({"collected_at"}),
+    "Experiment Templates": frozenset({"effective_at"}),
+    "Inventory Transactions": frozenset({"occurred_at"}),
+    "Equipment Bookings": frozenset({"starts_at", "ends_at", "reminder_at"}),
+    "Record Signatures": frozenset({"signed_at", "witnessed_at"}),
     "Audit Log": frozenset({"occurred_at"}),
 }
 

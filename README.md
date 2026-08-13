@@ -47,7 +47,11 @@ automation.
   run to its date, project, process, objective, status, operator, protocol, and
   equipment, then rolls up planned and actual charge mass, mass variance,
   charged-step count, bench-entry count, measurement count, latest activity,
-  completion summary, reviewer, and the next notebook action. Scientists do not
+  target batch mass, planned/actual mass balance, completion, charge-tolerance
+  failures, calculation issues, completion summary, reviewer, and the next
+  notebook action. It also reports governed template/version, linked material
+  transactions, signature/witness state, and a governance readiness status.
+  Scientists do not
   type into this tab; it updates from `Experiments`, `Batch Builder`, `Bench
   Log`, and `Measurements`.
 - `Run Console`: the scientist-facing front door. Select one experiment to see
@@ -60,11 +64,15 @@ automation.
 - `Batch Builder`: the primary scientist-facing quantity entry sheet, modeled
   on the staged charge tables in the historical reaction notebooks. Enter one
   row per initial charge, addition, feed, hold, quench, workup, or purification
-  step. Use either a direct
-  planned mass or parts-per-hundred-monomer plus a stage monomer basis; the
-  sheet calculates planned mass, active mass, density-backed volume, actual
-  variance, actual volume, feed rate, molecular weight, planned and actual
-  mmol, and equivalents. Pale-yellow cells are inputs and
+  step. Choose one explicit calculation mode per row: direct mass, batch wt%,
+  parts per hundred monomer, target active mass, molar equivalents, or
+  functional equivalents. It supports direct scale readings and
+  source-container weighing by difference, and separates active material from
+  inactive carrier contribution. The sheet
+  calculates the as-supplied mass to weigh, active mass, density-backed volume,
+  actual variance and percent error, tolerance status, feed rate, molecular
+  weight, planned and actual mmol, equivalents, and the first actionable
+  formula problem. Pale-yellow cells are inputs and
   pale-blue cells are calculated. Reagent names and default densities come from
   `Master Reagents`; actual mass, lot, operator, timestamp, and charge status
   make the table usable at the bench.
@@ -115,6 +123,16 @@ automation.
   disposition, owner, and closure state.
 - `Raw Data Files`: immutable file provenance, instrument/sample linkage,
   checksums, and parser state.
+- `Experiment Templates`: governed, versioned experiment layouts with
+  draft/effective/superseded/withdrawn lifecycle, required capture sections,
+  default protocol, and review route.
+- `Inventory Transactions`: append-only reagent consumption, addition,
+  adjustment, transfer, and disposal events linked to experiments and charges.
+- `Equipment Bookings`: scheduled usage, calibration, and maintenance windows
+  linked to instruments and experiments.
+- `Record Signatures`: author/reviewer signoff events, record fingerprints, and
+  independent witnessing. This is a traceable spreadsheet workflow, not by
+  itself a 21 CFR Part 11 certification or cryptographic lock.
 - `Audit Log`: append-only create, update, correction, import, and migration
   events with actor, reason, and before/after values.
 - `Process Knowledge`: compact process priors used for semantic lookup.
@@ -127,7 +145,7 @@ Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
 
-The current workbook contract is `0.7.0`. `google-setup-live` is an idempotent
+The current workbook contract is `0.10.0`. `google-setup-live` is an idempotent
 migration: it creates or refreshes the Run Console, preserves its active
 experiment selection, creates the compact scientist entry sheets, Plot Studio,
 Batch Builder, and other missing tabs, appends missing controlled
@@ -139,6 +157,13 @@ hides implementation tabs so the workbook opens as a practical bench tool.
 Managed chart IDs live in chart alt text, keeping dashboard titles clean.
 Existing laboratory rows are preserved. Use `--no-type-normalization` only when
 legacy cells must remain text for an external consumer.
+
+For the automatic mass workflow, see the
+[implementation prompt](docs/automatic-mass-spreadsheet-implementation-prompt.md)
+and the [scientist guide](docs/automatic-mass-spreadsheet-guide.md).
+The [ELN market benchmark](docs/eln-market-benchmark.md) records which current
+product patterns informed the governed-template, material-ledger, scheduling,
+and signoff additions.
 
 Agent runs read supported `Agent Config` defaults from the workbook or snapshot:
 `default_context_limit`, `default_history_limit`, `default_evidence_limit`,

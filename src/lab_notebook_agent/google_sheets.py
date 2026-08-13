@@ -70,10 +70,13 @@ CORE_ENTRY_SHEETS = frozenset(
         "Samples",
         "Deviations",
         "Raw Data Files",
+        "Inventory Transactions",
+        "Equipment Bookings",
+        "Record Signatures",
     }
 )
 REFERENCE_SHEETS = frozenset(
-    {"Master Reagents", "Equipment", "Protocols", "Specifications"}
+    {"Master Reagents", "Equipment", "Protocols", "Specifications", "Experiment Templates"}
 )
 OPTIONAL_EXTENSION_SHEETS = {
     "Batch Builder",
@@ -94,7 +97,24 @@ OPTIONAL_EXTENSION_SHEETS = {
     "Specifications",
     "Deviations",
     "Raw Data Files",
+    "Experiment Templates",
+    "Inventory Transactions",
+    "Equipment Bookings",
+    "Record Signatures",
     "Audit Log",
+}
+
+FOREIGN_KEY_VALIDATIONS = {
+    "Experiments": (("template_id", "Experiment Templates", "A", "Choose a governed template ID."),),
+    "Inventory Transactions": (
+        ("reagent_id", "Master Reagents", "A", "Choose an existing reagent ID."),
+        ("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),
+    ),
+    "Equipment Bookings": (
+        ("equipment_id", "Equipment", "A", "Choose an existing equipment ID."),
+        ("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),
+    ),
+    "Record Signatures": (("experiment_id", "Experiments", "A", "Choose an existing experiment ID."),),
 }
 
 
@@ -367,6 +387,18 @@ def google_setup_requests_from_metadata(
                         allowed_values,
                         sheet_ids,
                         validation_end_row=validation_end_row,
+                    )
+                )
+            for field, source_sheet, source_column, message in FOREIGN_KEY_VALIDATIONS.get(spec.name, ()):
+                requests.append(
+                    range_data_validation_request(
+                        spec.name,
+                        field,
+                        source_sheet,
+                        source_column,
+                        message,
+                        sheet_ids,
+                        validation_end_row,
                     )
                 )
         if spec.name == "Batch Builder":
@@ -740,8 +772,8 @@ def batch_builder_setup_requests(
         )
 
     if is_new:
-        variance_column = headers.index("mass_variance_g")
-        requests.append(
+        variance_column = headers.index("mass_variance_percent")
+        requests.extend([
             {
                 "addConditionalFormatRule": {
                 "index": 0,
@@ -761,7 +793,7 @@ def batch_builder_setup_requests(
                             "values": [
                                 {
                                     "userEnteredValue": (
-                                        '=AND($S2<>"",ABS($S2)>MAX(0.05,ABS($L2)*0.02))'
+                                        '=AND($A2<>"",$AP2<>"",IF($AN2<>"",$AN2,$AO2)>0,ABS($AP2)>IF($AN2<>"",$AN2,$AO2))'
                                     )
                                 }
                             ],
@@ -773,8 +805,68 @@ def batch_builder_setup_requests(
                     },
                 },
                 }
-            }
-        )
+            },
+            *[
+                {
+                    "addConditionalFormatRule": {
+                        "index": 0,
+                        "rule": {
+                            "ranges": [{
+                                "sheetId": sheet_id,
+                                "startRowIndex": 1,
+                                "endRowIndex": validation_end_row,
+                                "startColumnIndex": headers.index("within_tolerance"),
+                                "endColumnIndex": headers.index("within_tolerance") + 1,
+                            }],
+                            "booleanRule": {
+                                "condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": status}]},
+                                "format": {"backgroundColor": color, "textFormat": {"bold": True}},
+                            },
+                        },
+                    }
+                }
+                for status, color in (
+                    ("PASS", {"red": 0.78, "green": 0.88, "blue": 0.70}),
+                    ("FAIL", {"red": 0.96, "green": 0.80, "blue": 0.80}),
+                )
+            ],
+            {
+                "addConditionalFormatRule": {
+                    "index": 0,
+                    "rule": {
+                        "ranges": [{
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": validation_end_row,
+                            "startColumnIndex": headers.index("formula_status"),
+                            "endColumnIndex": headers.index("formula_status") + 1,
+                        }],
+                        "booleanRule": {
+                            "condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": '=AND($A2<>"",$AR2<>"READY")'}]},
+                            "format": {"backgroundColor": {"red": 1.0, "green": 0.90, "blue": 0.60}, "textFormat": {"bold": True}},
+                        },
+                    },
+                }
+            },
+            {
+                "addConditionalFormatRule": {
+                    "index": 0,
+                    "rule": {
+                        "ranges": [{
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": validation_end_row,
+                            "startColumnIndex": headers.index("weighing_status"),
+                            "endColumnIndex": headers.index("weighing_status") + 1,
+                        }],
+                        "booleanRule": {
+                            "condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": '=AND($A2<>"",$BF2<>"READY",$BF2<>"NOT_RECORDED")'}]},
+                            "format": {"backgroundColor": {"red": 1.0, "green": 0.90, "blue": 0.60}, "textFormat": {"bold": True}},
+                        },
+                    },
+                }
+            },
+        ])
     return requests
 
 
@@ -1398,27 +1490,30 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
         ("Raw files", "Raw Data Files"),
         ("Deviations", "Deviations"),
         ("Plot studio", "Plot Studio"),
+        ("Material ledger", "Inventory Transactions"),
+        ("Equipment schedule", "Equipment Bookings"),
+        ("Signatures", "Record Signatures"),
     )
     rows: list[list[Any]] = [
         ["EXPERIMENT OVERVIEW", "", "", "", "READINESS", "VALUE", "CHECK", "", "QUICK LINKS", ""],
         ["Status", run_console_lookup_formula("I"), "", "", "Operator", "=$B$7", '=IF($B$3="","",IF(F6<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[0][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[0][1]]}","Open →")'],
         ["Operator", run_console_lookup_formula("H"), "", "", "Protocol", run_console_lookup_formula("Q"), '=IF($B$3="","",IF(F7<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[1][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[1][1]]}","Open →")'],
         ["Process", run_console_lookup_formula("D"), "", "", "Equipment", run_console_lookup_formula("R"), '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[2][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[2][1]]}","Open →")'],
-        ["Date", run_console_lookup_formula("B"), "", "", "Batch charges", '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9>0,"✓ Quantified","⚠ Missing"))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
+        ["Date", run_console_lookup_formula("B"), "", "", "Batch charges", '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9=0,"⚠ Missing",IF(COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,$B$3,\'Batch Builder\'!$AR$2:$AR$1000,"READY")=F9,"✓ Quantified","⚠ Fix mass plan")))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
         ["Objective", run_console_lookup_formula("E"), "", "", "Run steps", '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))', "", link_rows[4][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[4][1]]}","Open →")'],
         ["Hypothesis", run_console_lookup_formula("F"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Bench Log\'!$A$2:$A$1000,$B$3)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
         ["Next step", run_console_lookup_formula("J"), "", "", "Samples", '=IF($B$3="","",COUNTIF(\'Samples\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))', "", link_rows[6][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[6][1]]}","Open →")'],
         ["", "", "", "", "Results", '=IF($B$3="","",COUNTIF(Measurements!$A$2:$A$1000,$B$3)+COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
         ["", "", "", "", "Raw files", '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F14>0,"✓ Linked","⚠ Missing"))', "", link_rows[8][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[8][1]]}","Open →")'],
-        ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F15=0,"✓ Clear","⚠ Attention"))', "", "", ""],
-        ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F16<>"Not recorded","✓ Ready","⚠ Missing"))', "", "", ""],
-        ["", "", "", "", "Completeness", '=IF($B$3="","",COUNTIF($G$6:$G$16,"✓*")/11)', '=IF($B$3="","",IF(F17=1,"✓ Ready to close",TEXT(F17,"0%")&" complete"))', "", "", ""],
+        ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F15=0,"✓ Clear","⚠ Attention"))', "", link_rows[9][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[9][1]]}","Open →")'],
+        ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F16<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[10][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[10][1]]}","Open →")'],
+        ["", "", "", "", "Completeness", '=IF($B$3="","",COUNTIF($G$6:$G$16,"✓*")/11)', '=IF($B$3="","",IF(F17=1,"✓ Ready to close",TEXT(F17,"0%")&" complete"))', "", link_rows[11][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[11][1]]}","Open →")'],
         ["BENCH WORKFLOW", "", "", "", "", "", "", "", "", ""],
         ["1 · PLAN", "Set protocol, equipment, run steps, acceptance criteria, and sample plan before starting.", "", "", "", "", "", "", "", ""],
         ["2 · PREPARE", "Confirm reagent lots, equipment calibration, formulation targets, and safety controls.", "", "", "", "", "", "", "", ""],
         ["3 · RUN", "Record timestamps, actual additions, process conditions, observations, and deviations as they happen.", "", "", "", "", "", "", "", ""],
         ["4 · MEASURE", "Create sample records, link instrument files, capture uncertainty, and evaluate specifications.", "", "", "", "", "", "", "", ""],
-        ["5 · REVIEW", "Complete reviewer fields, resolve deviations, document the conclusion, and define the next experiment.", "", "", "", "", "", "", "", ""],
+        ["5 · REVIEW", "Resolve deviations, document the conclusion, then sign and independently witness the finalized record when required.", "", "", "", "", "", "", "", ""],
         ["", "", "", "", "", "", "", "", "", ""],
         ["GOOD RECORDS", "Use stable IDs. Record actual values, times, lots, and operators. Link raw evidence; never replace it with a summary.", "", "", "", "", "", "", "", ""],
     ]
@@ -1435,20 +1530,21 @@ def active_run_queue_formula(experiments_sheet_id: int) -> str:
         'IF(id="","",IF(operator="","Assign operator",'
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
         'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
+        'IF(COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")<>COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id),"Fix mass calculation inputs",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
         'IF((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
         'IF((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
-        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))))'
     )
     completeness = (
         'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
         'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
-        'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
+        'N(AND(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0,COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")=COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)))+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
         'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
@@ -2009,6 +2105,41 @@ def data_validation_request(
                     ],
                 },
                 "inputMessage": "Choose a value from the controlled vocabulary.",
+                "strict": True,
+                "showCustomUi": True,
+            },
+        }
+    }
+
+
+def range_data_validation_request(
+    sheet_name: str,
+    field: str,
+    source_sheet: str,
+    source_column: str,
+    message: str,
+    sheet_ids: dict[str, int],
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> dict[str, Any]:
+    """Validate a foreign-key-like column against another contract sheet."""
+
+    headers = list(sheet_by_name(sheet_name).headers)
+    column_index = headers.index(field)
+    return {
+        "setDataValidation": {
+            "range": {
+                "sheetId": sheet_ids[sheet_name],
+                "startRowIndex": 1,
+                "endRowIndex": validation_end_row,
+                "startColumnIndex": column_index,
+                "endColumnIndex": column_index + 1,
+            },
+            "rule": {
+                "condition": {
+                    "type": "ONE_OF_RANGE",
+                    "values": [{"userEnteredValue": f"='{source_sheet}'!${source_column}$2:${source_column}$1000"}],
+                },
+                "inputMessage": message,
                 "strict": True,
                 "showCustomUi": True,
             },

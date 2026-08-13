@@ -16,6 +16,7 @@ from lab_notebook_agent.scientist_workspace import (
     plot_studio_process_formula,
     reaction_master_excel_formula,
     result_rows_from_tables,
+    summarize_record_governance,
 )
 from lab_notebook_agent.templates import save_workbook
 
@@ -73,6 +74,16 @@ class ScientistWorkspaceTests(unittest.TestCase):
         self.assertIn("Enter batch quantities", next_action)
         self.assertIn("MAP(A2:A1000", google["Planned mass (g)"])
         self.assertIn("COUNTIF('Bench Log'!A2:A1000", google["Bench entries"])
+        self.assertIn("Experiments!$A$2:$AB$1000,24", reaction_master_excel_formula("Mass plan status", 2))
+        self.assertIn("'Batch Builder'!$AR$2:$AR$1000", reaction_master_excel_formula("Calculation issues", 2))
+        self.assertIn("CALCULATION_ISSUES", google["Mass plan status"])
+        self.assertIn("MASS_MISMATCH", google["Mass plan status"])
+        self.assertIn("'Batch Builder'!$AV$2:$AV$1000", reaction_master_excel_formula("Planned numerator eq", 2))
+        self.assertIn("RATIO_MISMATCH", google["Stoichiometry status"])
+        self.assertIn("Record Signatures", reaction_master_excel_formula("Signature status", 2))
+        self.assertIn("Experiment Templates", reaction_master_excel_formula("Governance status", 2))
+        self.assertIn("READY_TO_ARCHIVE", google["Governance status"])
+        self.assertTrue(all(value.count("(") == value.count(")") for value in google.values()))
 
     def test_generated_workbook_prioritizes_compact_entry_and_plotting(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -92,12 +103,31 @@ class ScientistWorkspaceTests(unittest.TestCase):
             self.assertIn("SUMIF", workbook["Reaction Master"]["J2"].value)
             self.assertIn("COUNTIF", workbook["Reaction Master"]["N2"].value)
             self.assertIn("Continue run", workbook["Reaction Master"]["R2"].value)
+            self.assertIn("Experiments!$W2", workbook["Reaction Master"]["U2"].value)
+            self.assertIn("MASS_MISMATCH", workbook["Reaction Master"]["AA2"].value)
             metadata = {
                 row[0].value: row[1].value
                 for row in workbook["Workbook Metadata"].iter_rows(min_row=2)
                 if row[0].value
             }
-            self.assertEqual("0.7.0", metadata["contract_version"])
+            self.assertEqual("0.10.0", metadata["contract_version"])
+            self.assertEqual("Stoichiometry status", workbook["Reaction Master"]["AK1"].value)
+            self.assertEqual("Recovered mass (g)", workbook["Bench Log"]["R1"].value)
+            self.assertEqual("Governance status", workbook["Reaction Master"]["AT1"].value)
+            self.assertTrue({"Experiment Templates", "Inventory Transactions", "Equipment Bookings", "Record Signatures"}.issubset(workbook.sheetnames))
+
+    def test_record_governance_requires_effective_template_signoff_and_witness(self) -> None:
+        experiment = {"experiment_id": "EP-10", "status": "complete", "template_id": "TPL-1", "template_version": "2"}
+        templates = [{"template_id": "TPL-1", "version": "2", "state": "effective"}]
+        unsigned = summarize_record_governance(experiment, templates, [], [])
+        self.assertEqual("SIGNOFF_REQUIRED", unsigned["governance_status"])
+        signed = [{"experiment_id": "EP-10", "status": "signed", "signer": "Scientist", "signed_at": "2026-08-12T12:00:00"}]
+        unwitnessed = summarize_record_governance(experiment, templates, signed, [])
+        self.assertEqual("WITNESS_REQUIRED", unwitnessed["governance_status"])
+        signed[0].update({"witnessed_by": "Reviewer", "witnessed_at": "2026-08-12T13:00:00"})
+        ready = summarize_record_governance(experiment, templates, signed, [{"experiment_id": "EP-10"}])
+        self.assertEqual("READY_TO_ARCHIVE", ready["governance_status"])
+        self.assertEqual(1, ready["material_transactions"])
 
     def test_live_upgrade_adds_entry_sheets_seeds_history_and_adds_two_charts(self) -> None:
         metadata = {

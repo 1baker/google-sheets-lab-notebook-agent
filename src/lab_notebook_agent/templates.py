@@ -63,10 +63,13 @@ CORE_ENTRY_SHEETS = frozenset(
         "Samples",
         "Deviations",
         "Raw Data Files",
+        "Inventory Transactions",
+        "Equipment Bookings",
+        "Record Signatures",
     }
 )
 REFERENCE_SHEETS = frozenset(
-    {"Master Reagents", "Equipment", "Protocols", "Specifications"}
+    {"Master Reagents", "Equipment", "Protocols", "Specifications", "Experiment Templates"}
 )
 
 
@@ -82,6 +85,9 @@ def freeze_pane_for_sheet(sheet_name: str) -> str:
         "Samples",
         "Deviations",
         "Raw Data Files",
+        "Inventory Transactions",
+        "Equipment Bookings",
+        "Record Signatures",
         "Project Notebook Records",
     }:
         return "C2"
@@ -181,20 +187,21 @@ def local_active_run_queue_formula() -> str:
         'IF(id="","",IF(operator="","Assign operator",'
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
         'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
+        'IF(COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")<>COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id),"Fix mass calculation inputs",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
         'IF((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
         'IF((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
-        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
+        '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close")))))))))))))))'
     )
     completeness = (
         'MAP(Experiments!$A$2:$A$1000,Experiments!$H$2:$H$1000,'
         'Experiments!$Q$2:$Q$1000,Experiments!$R$2:$R$1000,'
         'Experiments!$U$2:$U$1000,LAMBDA(id,operator,protocol,equipment,reviewer,'
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
-        'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
+        'N(AND(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0,COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,id,\'Batch Builder\'!$AR$2:$AR$1000,"READY")=COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)))+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
         'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
@@ -277,7 +284,7 @@ def ensure_run_console(workbook: Workbook) -> None:
         "G8": '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))',
         "E9": "Batch charges",
         "F9": '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))',
-        "G9": '=IF($B$3="","",IF(F9>0,"✓ Quantified","⚠ Missing"))',
+        "G9": '=IF($B$3="","",IF(F9=0,"⚠ Missing",IF(COUNTIFS(\'Batch Builder\'!$A$2:$A$1000,$B$3,\'Batch Builder\'!$AR$2:$AR$1000,"READY")=F9,"✓ Quantified","⚠ Fix mass plan")))',
         "E10": "Run steps",
         "F10": '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))',
         "G10": '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))',
@@ -312,7 +319,7 @@ def ensure_run_console(workbook: Workbook) -> None:
         "A22": "4 · MEASURE",
         "B22": "Create sample records, link instrument files, capture uncertainty, and evaluate specifications.",
         "A23": "5 · REVIEW",
-        "B23": "Complete reviewer fields, resolve deviations, document the conclusion, and define the next experiment.",
+        "B23": "Resolve deviations, document the conclusion, then sign and independently witness the finalized record when required.",
         "A25": "GOOD RECORDS",
         "B25": "Use stable IDs. Record actual values, times, lots, and operators. Link raw evidence; never replace it with a summary.",
         "A28": "ACTIVE RUN QUEUE",
@@ -353,6 +360,9 @@ def ensure_run_console(workbook: Workbook) -> None:
             ("Raw files", "Raw Data Files"),
             ("Deviations", "Deviations"),
             ("Plot studio", "Plot Studio"),
+            ("Material ledger", "Inventory Transactions"),
+            ("Equipment schedule", "Equipment Bookings"),
+            ("Signatures", "Record Signatures"),
         ),
         start=6,
     ):
@@ -502,16 +512,21 @@ def ensure_reaction_master(workbook: Workbook, end_row: int = 1000) -> None:
             cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
             cell.alignment = Alignment(vertical="center", wrap_text=True)
     worksheet.freeze_panes = "B2"
-    worksheet.auto_filter.ref = f"A1:T{end_row}"
-    for column in ("B", "P", "T"):
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{end_row}"
+    for column in ("B", "P", "T", "AQ", "AS"):
         for row_number in range(2, end_row + 1):
             worksheet[f"{column}{row_number}"].number_format = "yyyy-mm-dd hh:mm"
-    for column in ("J", "K", "L"):
+    for column in ("J", "K", "L", "U", "V", "W", "AD", "AE", "AF", "AG", "AH", "AI", "AJ"):
         for row_number in range(2, end_row + 1):
             worksheet[f"{column}{row_number}"].number_format = "0.00"
+    for row_number in range(2, end_row + 1):
+        worksheet[f"X{row_number}"].number_format = "0%"
+        worksheet[f"Y{row_number}"].number_format = "0"
+        worksheet[f"Z{row_number}"].number_format = "0"
+        worksheet[f"AN{row_number}"].number_format = "0"
 
 
-def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
+def ensure_batch_builder(workbook: Workbook, end_row: int = 1000) -> None:
     """Install scientist-facing quantity formulas and visual input cues."""
 
     if "Batch Builder" not in workbook.sheetnames:
@@ -552,6 +567,16 @@ def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
         "charge_status",
         "notes",
         "equivalent_basis_mmol",
+        "calculation_mode",
+        "recipe_wt_percent",
+        "target_active_mass_g",
+        "target_equivalents",
+        "mass_tolerance_percent",
+        "target_functional_equivalents",
+        "weighing_method",
+        "source_container_before_g",
+        "source_container_after_g",
+        "carrier_reagent_id",
     )
     for header in input_headers:
         column_number = headers.index(header) + 1
@@ -562,6 +587,40 @@ def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
     worksheet.freeze_panes = "C2"
     worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(2, end_row)}"
     worksheet.row_dimensions[1].height = 42
+    worksheet.conditional_formatting.add(
+        f"AP2:AP{end_row}",
+        FormulaRule(
+            formula=['AND($A2<>"",$AP2<>"",IF($AN2<>"",$AN2,$AO2)>0,ABS($AP2)>IF($AN2<>"",$AN2,$AO2))'],
+            fill=PatternFill("solid", fgColor="F4CCCC"),
+            font=Font(bold=True),
+        ),
+    )
+    for status, color in (("PASS", "C6E0B4"), ("FAIL", "F4CCCC")):
+        worksheet.conditional_formatting.add(
+            f"AQ2:AQ{end_row}",
+            CellIsRule(
+                operator="equal",
+                formula=[f'"{status}"'],
+                fill=PatternFill("solid", fgColor=color),
+                font=Font(bold=True),
+            ),
+        )
+    worksheet.conditional_formatting.add(
+        f"AR2:AR{end_row}",
+        FormulaRule(
+            formula=['AND($A2<>"",$AR2<>"READY")'],
+            fill=PatternFill("solid", fgColor="FFE699"),
+            font=Font(bold=True),
+        ),
+    )
+    worksheet.conditional_formatting.add(
+        f"BF2:BF{end_row}",
+        FormulaRule(
+            formula=['AND($A2<>"",$BF2<>"READY",$BF2<>"NOT_RECORDED")'],
+            fill=PatternFill("solid", fgColor="FFE699"),
+            font=Font(bold=True),
+        ),
+    )
 
 
 def ensure_plot_studio(workbook: Workbook) -> None:
@@ -744,6 +803,24 @@ def add_validations(workbook: Workbook) -> None:
         worksheet.add_data_validation(validation)
         validation.add(f"{run_column}2:{run_column}1000")
 
+    for sheet_name, field, source_range, prompt in (
+        ("Experiments", "template_id", "'Experiment Templates'!$A$2:$A$1000", "Choose a governed template ID."),
+        ("Inventory Transactions", "reagent_id", "'Master Reagents'!$A$2:$A$1000", "Choose an existing reagent ID."),
+        ("Inventory Transactions", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
+        ("Equipment Bookings", "equipment_id", "'Equipment'!$A$2:$A$1000", "Choose an existing equipment ID."),
+        ("Equipment Bookings", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
+        ("Record Signatures", "experiment_id", "'Experiments'!$A$2:$A$1000", "Choose an existing experiment ID."),
+    ):
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        column_letter = get_column_letter(headers.index(field) + 1)
+        validation = DataValidation(type="list", formula1=source_range, allow_blank=True)
+        validation.error = prompt
+        validation.errorTitle = "Unknown ID"
+        validation.prompt = prompt
+        worksheet.add_data_validation(validation)
+        validation.add(f"{column_letter}2:{column_letter}1000")
+
 
 def add_workflow_note(workbook: Workbook) -> None:
     worksheet = workbook["Agent Config"]
@@ -808,3 +885,18 @@ def add_quality_conditional_formats(workbook: Workbook) -> None:
                 fill=PatternFill("solid", fgColor=color),
             ),
         )
+
+    for sheet_name, field, colors in (
+        ("Experiment Templates", "state", (("effective", "C6E0B4"), ("draft", "FFE699"), ("withdrawn", "D9D9D9"))),
+        ("Record Signatures", "status", (("signed", "C6E0B4"), ("draft", "FFE699"), ("revoked", "F4CCCC"))),
+        ("Equipment Bookings", "status", (("confirmed", "C6E0B4"), ("planned", "FFE699"), ("cancelled", "D9D9D9"))),
+        ("Reaction Master", "Governance status", (("READY_TO_ARCHIVE", "C6E0B4"), ("SIGNOFF_REQUIRED", "FFE699"), ("WITNESS_REQUIRED", "FFE699"), ("TEMPLATE_NOT_EFFECTIVE", "F4CCCC"))),
+    ):
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        column = get_column_letter(headers.index(field) + 1)
+        for status, color in colors:
+            worksheet.conditional_formatting.add(
+                f"{column}2:{column}1000",
+                CellIsRule(operator="equal", formula=[f'"{status}"'], fill=PatternFill("solid", fgColor=color)),
+            )
