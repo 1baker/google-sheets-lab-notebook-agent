@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+WORKBOOK_CONTRACT_VERSION = "0.7.0"
+
+
 @dataclass(frozen=True)
 class Column:
     name: str
@@ -26,6 +29,14 @@ PROCESS_TYPES = (
     "solution polymerization",
     "bulk polymerization",
     "suspension polymerization",
+    "RAFT polymerization",
+    "step-growth polymerization",
+    "ring-opening polymerization",
+    "polyurethane network curing",
+    "photopolymerization",
+    "polymer functionalization",
+    "monomer synthesis",
+    "chain-transfer agent synthesis",
     "latex characterization",
     "compounding",
     "hydrolysis study",
@@ -41,6 +52,15 @@ REAGENT_CATEGORIES = (
     "crosslinker",
     "inhibitor",
     "additive",
+    "catalyst",
+    "acid",
+    "base",
+    "gas",
+    "polyol",
+    "isocyanate",
+    "chain_extender",
+    "functional_reagent",
+    "bio_based_substrate",
     "matrix_polymer",
     "unknown",
 )
@@ -57,17 +77,43 @@ FORMULATION_ROLES = (
     "solvent",
     "neutralizer",
     "additive",
+    "monomer",
+    "substrate",
+    "catalyst",
+    "acid",
+    "base",
+    "gas",
+    "polyol",
+    "isocyanate",
+    "chain_extender",
+    "functional_reagent",
 )
 
 BATCH_STAGES = (
+    "setup",
+    "initial_charge",
+    "addition",
+    "reaction",
+    "hold",
+    "quench",
     "seed",
     "core",
     "shell",
     "functional_shell",
     "workup",
+    "purification",
+    "isolation",
 )
 
 BATCH_CHARGE_TYPES = (
+    "initial_charge",
+    "monomer_charge",
+    "solvent_charge",
+    "catalyst_addition",
+    "dropwise_addition",
+    "gas_feed",
+    "reflux",
+    "distillation",
     "pre_reactor",
     "monomer_pre_emulsion",
     "aqueous_pre_emulsion",
@@ -76,6 +122,10 @@ BATCH_CHARGE_TYPES = (
     "redox_pair",
     "chase",
     "adjustment",
+    "quench",
+    "wash",
+    "filtration",
+    "isolation",
     "other",
 )
 
@@ -96,6 +146,9 @@ EXPERIMENT_STATUS = (
 
 PROCESS_STAGES = (
     "setup",
+    "initial_charge",
+    "addition",
+    "reaction",
     "seed",
     "feed",
     "hold",
@@ -104,6 +157,9 @@ PROCESS_STAGES = (
     "sampling",
     "test",
     "cleanup",
+    "quench",
+    "purification",
+    "isolation",
 )
 
 RESULT_QUALITY_FLAGS = (
@@ -250,6 +306,8 @@ CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
         "target_role": FORMULATION_ROLES,
         "charge_status": BATCH_CHARGE_STATUS,
     },
+    "Bench Log": {"Stage": PROCESS_STAGES},
+    "Measurements": {"Quality": RESULT_QUALITY_FLAGS},
     "Daily Log": {"process_stage": PROCESS_STAGES},
     "Formulations": {"target_role": FORMULATION_ROLES},
     "Results": {
@@ -286,6 +344,31 @@ CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 SHEETS: tuple[SheetSpec, ...] = (
+    SheetSpec(
+        name="Reaction Master",
+        columns=(
+            Column("Run ID", "Auto-linked experiment identifier."),
+            Column("Date", "Experiment date from Experiments."),
+            Column("Project", "Project from Experiments."),
+            Column("Process", "Polymerization or reaction process."),
+            Column("Objective", "Scientific objective for the run."),
+            Column("Status", "Current experiment status."),
+            Column("Operator", "Scientist running the reaction."),
+            Column("Protocol", "Protocol and version used."),
+            Column("Equipment", "Primary reactor or equipment."),
+            Column("Planned mass (g)", "Sum of planned Batch Builder charges."),
+            Column("Actual mass (g)", "Sum of actual Batch Builder charges."),
+            Column("Mass variance (g)", "Actual minus planned mass across charges."),
+            Column("Charges recorded", "Number of charges marked charged."),
+            Column("Bench entries", "Number of linked Bench Log entries."),
+            Column("Measurements", "Number of linked Measurements rows."),
+            Column("Last activity", "Most recent bench or measurement timestamp."),
+            Column("Run summary", "Completion summary from Experiments."),
+            Column("Next action", "Formula-derived next notebook action."),
+            Column("Reviewer", "Scientist who reviewed the record."),
+            Column("Reviewed at", "Record review timestamp."),
+        ),
+    ),
     SheetSpec(
         name="Master Reagents",
         columns=(
@@ -442,6 +525,11 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("recorded_at", "Timestamp for the charge record."),
             Column("charge_status", "Planned, prepared, charged, or skipped.", True),
             Column("notes", "Charge preparation, addition, or deviation notes."),
+            Column("molecular_weight_g_mol", "Calculated molecular weight from Master Reagents."),
+            Column("planned_moles_mmol", "Calculated planned active amount in mmol."),
+            Column("equivalent_basis_mmol", "Input reference amount used for equivalents."),
+            Column("equivalents", "Calculated planned mmol divided by the equivalent basis."),
+            Column("actual_moles_mmol", "Calculated actual active amount in mmol."),
         ),
         example_rows=(
             (
@@ -463,6 +551,29 @@ SHEETS: tuple[SheetSpec, ...] = (
                 "", "planned", "Enter the planned quantity and actual charge at the bench.",
             ),
         ),
+    ),
+    SheetSpec(
+        name="Bench Log",
+        columns=(
+            Column("Run ID", "Choose the experiment or run being recorded.", True),
+            Column("Date & time", "When the observation was made.", True),
+            Column("Stage", "Current process stage."),
+            Column("Temperature (°C)", "Observed reactor or sample temperature."),
+            Column("RPM", "Observed agitation speed."),
+            Column("pH", "Observed pH."),
+            Column("Solids (%)", "Observed or estimated solids."),
+            Column("Particle size (nm)", "Particle size when measured."),
+            Column("Conversion (%)", "Conversion when measured."),
+            Column("Viscosity (cP)", "Viscosity when measured."),
+            Column("Observation / action", "What happened, what was seen, or what was done.", True),
+            Column("Issue tags", "Short comma-separated issue tags."),
+            Column("Attachment link", "Link to a photo, instrument file, or folder."),
+        ),
+        example_rows=((
+            "EP-001", "2026-06-09T14:35:00", "feed", 70, 250, "", "", 420,
+            "", "", "Latex looked bluish but small coagulum appeared on stir shaft.",
+            "coagulum,particle_size_high", "",
+        ),),
     ),
     SheetSpec(
         name="Daily Log",
@@ -536,6 +647,30 @@ SHEETS: tuple[SheetSpec, ...] = (
             ("EP-001", "I-APS", "initiator feed", "initiator", "", "", "", "", "", "", "2", "0", "210", ""),
             ("EP-001", "S-SDS", "aqueous", "surfactant", "", "", "", "", "", "", "0", "", "", ""),
         ),
+    ),
+    SheetSpec(
+        name="Measurements",
+        columns=(
+            Column("Run ID", "Choose the experiment or run.", True),
+            Column("Sample ID", "Sample or aliquot identifier.", True),
+            Column("Measurement", "What was measured.", True),
+            Column("Method", "Instrument, method, or calculation."),
+            Column("Numeric value", "Machine-readable numeric result."),
+            Column("Units", "Units for the numeric value."),
+            Column("Condition", "Relevant test or sample condition."),
+            Column("Replicate", "Replicate number or label when applicable."),
+            Column("Uncertainty", "Measurement uncertainty when available."),
+            Column("Quality", "Observed, okay, suspect, repeat, or failed."),
+            Column("Raw file ID", "Linked raw-data record identifier."),
+            Column("Measured at", "Measurement timestamp."),
+            Column("Analyst", "Person who performed the measurement."),
+            Column("Interpretation / notes", "Short result interpretation or notes."),
+        ),
+        example_rows=((
+            "EP-001", "EP-001-L1", "DLS particle size", "intensity average",
+            420, "nm", "post-feed", "1", "", "suspect", "", "", "",
+            "Above target range.",
+        ),),
     ),
     SheetSpec(
         name="Results",
@@ -687,6 +822,14 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("record_count", "Number of active normalized records produced."),
             Column("status", "synced, unchanged, or needs_review."),
             Column("warnings_json", "JSON list of parser warnings."),
+        ),
+    ),
+    SheetSpec(
+        name="Plot Studio",
+        columns=(
+            Column("control", "Plot Studio control or helper label."),
+            Column("value", "Selected value or chart data."),
+            Column("notes", "Instructions or helper context."),
         ),
     ),
     SheetSpec(
@@ -885,7 +1028,7 @@ SHEETS: tuple[SheetSpec, ...] = (
         ),
         example_rows=(
             ("contract_name", "lab-notebook-agent-workbook", "", "Machine-readable workbook contract."),
-            ("contract_version", "0.2.0", "", "Schema version currently applied to this workbook."),
+            ("contract_version", WORKBOOK_CONTRACT_VERSION, "", "Schema version currently applied to this workbook."),
             ("workbook_timezone", "America/Chicago", "", "Timezone used for local laboratory timestamps."),
             ("migration_status", "current", "", "Set by a successful contract migration."),
         ),
@@ -1032,7 +1175,6 @@ SHEETS: tuple[SheetSpec, ...] = (
     ),
 )
 
-WORKBOOK_CONTRACT_VERSION = "0.5.0"
 RUN_CONSOLE_SHEET = "Run Console"
 
 NUMBER_COLUMNS: dict[str, frozenset[str]] = {
@@ -1093,8 +1235,25 @@ NUMBER_COLUMNS: dict[str, frozenset[str]] = {
             "feed_duration_min",
             "feed_rate_mL_min",
             "target_temperature_C",
+            "molecular_weight_g_mol",
+            "planned_moles_mmol",
+            "equivalent_basis_mmol",
+            "equivalents",
+            "actual_moles_mmol",
         }
     ),
+    "Bench Log": frozenset(
+        {
+            "Temperature (°C)",
+            "RPM",
+            "pH",
+            "Solids (%)",
+            "Particle size (nm)",
+            "Conversion (%)",
+            "Viscosity (cP)",
+        }
+    ),
+    "Measurements": frozenset({"Numeric value", "Uncertainty"}),
     "Results": frozenset(
         {
             "replicate",
@@ -1195,6 +1354,8 @@ DATETIME_COLUMNS: dict[str, frozenset[str]] = {
     "Daily Log": frozenset({"timestamp"}),
     "Formulations": frozenset({"recorded_at"}),
     "Batch Builder": frozenset({"recorded_at"}),
+    "Bench Log": frozenset({"Date & time"}),
+    "Measurements": frozenset({"Measured at"}),
     "Results": frozenset({"measured_at", "reviewed_at"}),
     "Agent Suggestions": frozenset({"created_at"}),
     "Daily Reviews": frozenset({"created_at"}),

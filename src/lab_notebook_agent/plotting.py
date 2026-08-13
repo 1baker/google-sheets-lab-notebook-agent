@@ -13,6 +13,7 @@ from openpyxl.styles import Font, PatternFill
 
 from .project_notebook import ensure_workbook_contract
 from .schema import sheet_by_name
+from .scientist_workspace import daily_log_rows_from_tables, result_rows_from_tables
 
 
 PLOT_DATA_SHEET = "Plot Data"
@@ -692,7 +693,7 @@ def daily_log_plot_blocks(
 ) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     daily_rows = []
-    for row_number, row in enumerate(tables.get("Daily Log", []), start=2):
+    for row_number, row in enumerate(daily_log_rows_from_tables(tables), start=2):
         enriched = dict(row)
         enriched["_plot_source_range"] = f"Daily Log row {row_number}"
         daily_rows.append(enriched)
@@ -812,7 +813,7 @@ def result_trend_plot_blocks(
         tuple[str, str],
         dict[str, Any],
     ] = {}
-    for row_number, row in enumerate(tables.get("Results", []), start=2):
+    for row_number, row in enumerate(result_rows_from_tables(tables), start=2):
         measurement = str(row.get("measurement_type", "")).strip()
         units = str(row.get("units", "")).strip()
         value = numeric_value(row.get("value"))

@@ -42,6 +42,11 @@ class BatchBuilderTests(unittest.TestCase):
             "target_temperature_C",
             "lot",
             "charge_status",
+            "molecular_weight_g_mol",
+            "planned_moles_mmol",
+            "equivalent_basis_mmol",
+            "equivalents",
+            "actual_moles_mmol",
         ):
             self.assertIn(header, headers)
 
@@ -52,6 +57,9 @@ class BatchBuilderTests(unittest.TestCase):
         self.assertIn("'Master Reagents'!A2:G1000", formulas["density_g_mL"])
         self.assertIn("R2:R1000-L2:L1000", formulas["mass_variance_g"])
         self.assertIn("Q2:Q1000/V2:V1000", formulas["feed_rate_mL_min"])
+        self.assertIn("'Master Reagents'!A2:F1000", formulas["molecular_weight_g_mol"])
+        self.assertIn("N2:N1000/AD2:AD1000*1000", formulas["planned_moles_mmol"])
+        self.assertIn("AE2:AE1000/AF2:AF1000", formulas["equivalents"])
         self.assertTrue(
             all(formula.count("(") == formula.count(")") for formula in formulas.values())
         )
@@ -68,6 +76,10 @@ class BatchBuilderTests(unittest.TestCase):
             self.assertEqual("EAF4F7", worksheet["L2"].fill.fgColor.rgb[-6:])
             self.assertEqual("0.########", worksheet["L2"].number_format)
             self.assertEqual("C2", worksheet.freeze_panes)
+            self.assertIn("VLOOKUP", worksheet["AD2"].value)
+            self.assertIn("$N2/$AD2*1000", worksheet["AE2"].value)
+            self.assertEqual("FFF9E3", worksheet["AF2"].fill.fgColor.rgb[-6:])
+            self.assertEqual("EAF4F7", worksheet["AG2"].fill.fgColor.rgb[-6:])
 
     def test_google_setup_installs_batch_builder_formulas_and_id_validations(self) -> None:
         requests = google_setup_requests_from_metadata({"properties": {}, "sheets": []})
@@ -80,7 +92,7 @@ class BatchBuilderTests(unittest.TestCase):
             if request.get("updateCells", {}).get("start", {}).get("sheetId") == sheet_id
             and "formulaValue" in value.get("userEnteredValue", {})
         ]
-        self.assertEqual(8, len(formulas))
+        self.assertEqual(12, len(formulas))
         self.assertTrue(any("ARRAYFORMULA" in formula for formula in formulas))
         id_validations = [
             request["setDataValidation"]
@@ -131,11 +143,15 @@ class BatchBuilderTests(unittest.TestCase):
             "feed_rate_mL_min": 0.622,
             "lot": "BA-LOT-1",
             "charge_status": "charged",
+            "planned_moles_mmol": 874.6,
+            "molecular_weight_g_mol": 128.17,
+            "equivalents": 1.0,
         }
         projected = batch_builder_to_formulation_row(charge)
         self.assertEqual("core / monomer_pre_emulsion", projected["phase"])
         self.assertEqual(99.7, projected["mass_g"])
         self.assertEqual("EP-900-CHG-001", projected["charge_id"])
+        self.assertEqual(874.6, projected["moles_mmol"])
         combined = formulation_rows_from_tables(
             {"Formulations": [], "Batch Builder": [charge]}
         )

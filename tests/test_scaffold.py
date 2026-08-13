@@ -112,6 +112,9 @@ class ScaffoldTests(unittest.TestCase):
             self.assertFalse(workbook[RUN_CONSOLE_SHEET].sheet_view.showGridLines)
             for spec in SHEETS:
                 worksheet = workbook[spec.name]
+                if spec.name == "Plot Studio":
+                    self.assertEqual("PLOT STUDIO", worksheet["A1"].value)
+                    continue
                 headers = [cell.value for cell in worksheet[1]]
                 self.assertEqual(list(spec.headers), headers)
 
@@ -138,7 +141,7 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual("QUEUE SUMMARY", console["I28"].value)
             self.assertIn("COUNTIFS", str(console["J29"].value))
             self.assertEqual("hidden", workbook["Plot Data"].sheet_state)
-            self.assertEqual("visible", workbook["Plot Dashboard"].sheet_state)
+            self.assertEqual("hidden", workbook["Plot Dashboard"].sheet_state)
             self.assertLessEqual(workbook["Agent Suggestions"].column_dimensions["M"].width, 40)
 
     def test_workbook_template_validates_controlled_vocab_columns(self) -> None:
@@ -2683,7 +2686,7 @@ class ScaffoldTests(unittest.TestCase):
             workbook = load_workbook(output_path)
             worksheet = workbook["Results"]
             self.assertEqual("temperature", worksheet["C3"].value)
-            self.assertEqual("70", worksheet["E3"].value)
+            self.assertEqual(70, worksheet["E3"].value)
             self.assertEqual("agitation speed", worksheet["C4"].value)
 
     def test_daily_log_results_snapshot_emits_google_batch_requests(self) -> None:
@@ -2743,7 +2746,7 @@ class ScaffoldTests(unittest.TestCase):
                 AgentRunConfig(review_date="2026-06-09"),
             )
 
-            self.assertEqual(3, run["summary"]["normalized_result_rows_to_append"])
+            self.assertEqual(2, run["summary"]["normalized_result_rows_to_append"])
             suggestion = run["agent_report"]["runs"][0]["append_agent_suggestions"][0]
             self.assertIn("particle_size_high", suggestion["result_analysis"]["signals"])
             self.assertTrue(suggestion["proposed_experiment_plan"]["result_support"]["limiting_metrics"])
@@ -3206,7 +3209,8 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(1, audit["summary"]["existing_contract_sheet_count"])
         self.assertEqual(len(requests), audit["summary"]["request_count"])
         self.assertEqual(900000000, audit["generated_sheet_ids"][RUN_CONSOLE_SHEET])
-        self.assertEqual(900000001, audit["generated_sheet_ids"]["Master Reagents"])
+        self.assertEqual(900000001, audit["generated_sheet_ids"]["Reaction Master"])
+        self.assertEqual(900000002, audit["generated_sheet_ids"]["Master Reagents"])
 
     def test_validate_snapshot_detects_header_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

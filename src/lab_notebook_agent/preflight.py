@@ -229,7 +229,7 @@ def observations_check(entry: dict[str, Any], stage: str) -> dict[str, Any]:
         status,
         "Daily Log has no observations for this experiment.",
         details={"observation_count": 0},
-        actions=["Capture timestamped observations in Daily Log during setup, feed, hold, workup, and testing."],
+        actions=["Capture timestamped observations in Bench Log during setup, feed, hold, workup, and testing."],
     )
 
 
@@ -248,7 +248,7 @@ def results_check(entry: dict[str, Any], stage: str) -> dict[str, Any]:
         status,
         "Results has no measurements for this experiment.",
         details={"result_count": 0},
-        actions=["Capture normalized measurements in Results before asking for a result-driven next experiment."],
+        actions=["Capture measurements in Measurements before asking for a result-driven next experiment."],
     )
 
 

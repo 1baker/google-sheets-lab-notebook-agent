@@ -23,6 +23,16 @@ from .schema import (
     sheet_by_name,
 )
 from .sheets import rows_from_values
+from .scientist_workspace import daily_log_rows_from_tables, result_rows_from_tables
+from .scientist_workspace import (
+    PROCESS_METRICS,
+    daily_log_to_bench_row,
+    plot_studio_measurement_choices_formula,
+    plot_studio_measurement_formula,
+    plot_studio_process_formula,
+    google_reaction_master_array_formulas,
+    result_to_measurement_row,
+)
 
 GENERATED_SHEET_ID_START = 900_000_000
 DEFAULT_VALIDATION_END_ROW = 1000
@@ -43,14 +53,19 @@ TECHNICAL_SHEETS = frozenset(
         "Workbook Metadata",
         "Audit Log",
         "Formulations",
+        "Daily Log",
+        "Results",
+        "Plot Dashboard",
     }
 )
 CORE_ENTRY_SHEETS = frozenset(
     {
         "Experiments",
+        "Reaction Master",
         "Batch Builder",
-        "Daily Log",
-        "Results",
+        "Bench Log",
+        "Measurements",
+        "Plot Studio",
         "Run Capture Plan",
         "Samples",
         "Deviations",
@@ -62,6 +77,10 @@ REFERENCE_SHEETS = frozenset(
 )
 OPTIONAL_EXTENSION_SHEETS = {
     "Batch Builder",
+    "Reaction Master",
+    "Bench Log",
+    "Measurements",
+    "Plot Studio",
     "Project Notebook Records",
     "Source Sync",
     "Plot Data",
@@ -296,7 +315,8 @@ def google_setup_requests_from_metadata(
     for spec in SHEETS:
         sheet_id = sheet_ids[spec.name]
         grid_column_count = minimum_grid_column_count(spec.name)
-        if spec.name not in existing_sheet_ids:
+        is_new = spec.name not in existing_sheet_ids
+        if is_new:
             requests.append(
                 add_sheet_request(
                     spec.name,
@@ -314,6 +334,24 @@ def google_setup_requests_from_metadata(
                 validation_end_row,
             )
         )
+        if spec.name == "Plot Studio":
+            requests.extend(
+                plot_studio_setup_requests(
+                    sheet_id,
+                    sheet_ids,
+                    is_new=is_new,
+                    chart_ids=sheet_chart_ids_from_metadata(metadata, "Plot Studio"),
+                )
+            )
+            continue
+        if spec.name == "Reaction Master":
+            requests.extend(
+                reaction_master_setup_requests(
+                    sheet_id,
+                    sheet_ids,
+                    validation_end_row=validation_end_row,
+                )
+            )
         requests.append(header_update_request(spec.name, sheet_ids))
         requests.append(header_format_request(spec.name, sheet_ids))
         requests.extend(column_number_format_requests(spec.name, sheet_ids, validation_end_row))
@@ -338,6 +376,14 @@ def google_setup_requests_from_metadata(
                     sheet_ids,
                     validation_end_row=validation_end_row,
                     is_new=spec.name not in existing_sheet_ids,
+                )
+            )
+        if spec.name in {"Bench Log", "Measurements"}:
+            requests.extend(
+                scientist_entry_setup_requests(
+                    spec.name,
+                    sheet_id,
+                    validation_end_row=validation_end_row,
                 )
             )
     return requests
@@ -446,6 +492,134 @@ def google_scientist_batch_builder_upgrade_requests(
                 }
             }
         )
+    requests.extend(
+        run_console_setup_requests(
+            sheet_ids[RUN_CONSOLE_SHEET],
+            sheet_ids,
+            is_new=False,
+        )
+    )
+    return requests
+
+
+def google_scientist_workspace_upgrade_requests(
+    metadata: dict[str, Any],
+    tables: dict[str, list[dict[str, Any]]],
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    """Return the idempotent 0.6 compact-entry and Plot Studio upgrade."""
+
+    existing_sheet_ids = sheet_ids_from_metadata_payload(metadata)
+    properties_by_title = sheet_properties_from_metadata_payload(metadata)
+    generated = generated_sheet_ids_for_missing(existing_sheet_ids)
+    sheet_ids = {**existing_sheet_ids, **generated}
+    requests: list[dict[str, Any]] = []
+    target_indexes = {"Reaction Master": 1, "Plot Studio": 2, "Bench Log": 6, "Measurements": 7}
+    for sheet_name in ("Reaction Master", "Plot Studio", "Bench Log", "Measurements"):
+        sheet_id = sheet_ids[sheet_name]
+        is_new = sheet_name not in existing_sheet_ids
+        if is_new:
+            requests.append(
+                add_sheet_request(
+                    sheet_name,
+                    sheet_id,
+                    minimum_grid_column_count(sheet_name),
+                    validation_end_row,
+                    index=target_indexes[sheet_name],
+                )
+            )
+        requests.append(
+            sheet_grid_setup_request(
+                sheet_name,
+                sheet_id,
+                minimum_grid_column_count(sheet_name),
+                properties_by_title.get(sheet_name, {}),
+                validation_end_row,
+            )
+        )
+        if sheet_name == "Plot Studio":
+            requests.extend(
+                plot_studio_setup_requests(
+                    sheet_id,
+                    sheet_ids,
+                    is_new=is_new,
+                    chart_ids=sheet_chart_ids_from_metadata(metadata, sheet_name),
+                )
+            )
+            continue
+        requests.extend(
+            [
+                header_update_request(sheet_name, sheet_ids),
+                header_format_request(sheet_name, sheet_ids),
+                *column_number_format_requests(sheet_name, sheet_ids, validation_end_row),
+                basic_filter_request(sheet_name, sheet_ids, validation_end_row),
+                *column_width_requests(sheet_name, sheet_ids),
+                header_row_height_request(sheet_name, sheet_ids),
+            ]
+        )
+        if sheet_name == "Reaction Master":
+            requests.extend(
+                reaction_master_setup_requests(
+                    sheet_id,
+                    sheet_ids,
+                    validation_end_row=validation_end_row,
+                )
+            )
+        for field, allowed_values in CONTROLLED_VOCAB_VALIDATIONS.get(sheet_name, {}).items():
+            requests.append(
+                data_validation_request(
+                    sheet_name,
+                    field,
+                    allowed_values,
+                    sheet_ids,
+                    validation_end_row=validation_end_row,
+                )
+            )
+        if sheet_name in {"Bench Log", "Measurements"}:
+            requests.extend(
+                scientist_entry_setup_requests(
+                    sheet_name,
+                    sheet_id,
+                    validation_end_row=validation_end_row,
+                )
+            )
+    if "Bench Log" not in existing_sheet_ids:
+        source_rows = [
+            daily_log_to_bench_row(row)
+            for row in tables.get("Daily Log", [])
+            if isinstance(row, dict)
+        ]
+        if not source_rows:
+            source_rows = [
+                dict(zip(sheet_by_name("Bench Log").headers, row))
+                for row in sheet_by_name("Bench Log").example_rows
+            ]
+        requests.append(append_cells_request("Bench Log", source_rows, sheet_ids))
+    if "Measurements" not in existing_sheet_ids:
+        source_rows = [
+            result_to_measurement_row(row)
+            for row in tables.get("Results", [])
+            if isinstance(row, dict)
+        ]
+        if not source_rows:
+            source_rows = [
+                dict(zip(sheet_by_name("Measurements").headers, row))
+                for row in sheet_by_name("Measurements").example_rows
+            ]
+        requests.append(append_cells_request("Measurements", source_rows, sheet_ids))
+    for legacy_sheet in ("Daily Log", "Results", "Plot Dashboard"):
+        if legacy_sheet in existing_sheet_ids:
+            requests.append(
+                {
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": existing_sheet_ids[legacy_sheet],
+                            "hidden": True,
+                        },
+                        "fields": "hidden",
+                    }
+                }
+            )
     requests.extend(
         run_console_setup_requests(
             sheet_ids[RUN_CONSOLE_SHEET],
@@ -604,6 +778,44 @@ def batch_builder_setup_requests(
     return requests
 
 
+def reaction_master_setup_requests(
+    sheet_id: int,
+    sheet_ids: dict[str, int],
+    *,
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    """Install array formulas for the auto-updating reaction rollup."""
+
+    headers = list(sheet_by_name("Reaction Master").headers)
+    requests: list[dict[str, Any]] = []
+    for header, formula in google_reaction_master_array_formulas(validation_end_row).items():
+        column_index = headers.index(header)
+        requests.append(
+            {
+                "updateCells": {
+                    "start": {"sheetId": sheet_id, "rowIndex": 1, "columnIndex": column_index},
+                    "rows": [{"values": [{"userEnteredValue": {"formulaValue": formula}}]}],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+    requests.append(
+        repeat_cell_format_request(
+            sheet_id,
+            1,
+            validation_end_row,
+            0,
+            len(headers),
+            {
+                "backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97},
+                "verticalAlignment": "MIDDLE",
+                "wrapStrategy": "WRAP",
+            },
+        )
+    )
+    return requests
+
+
 def generated_sheet_ids_for_missing(existing_sheet_ids: dict[str, int]) -> dict[str, int]:
     used_ids = set(existing_sheet_ids.values())
     generated: dict[str, int] = {}
@@ -619,12 +831,245 @@ def generated_sheet_ids_for_missing(existing_sheet_ids: dict[str, int]) -> dict[
     return generated
 
 
+def sheet_chart_ids_from_metadata(metadata: dict[str, Any], sheet_name: str) -> list[int]:
+    payload = metadata.get("structuredContent") if isinstance(metadata, dict) else None
+    if not isinstance(payload, dict):
+        payload = metadata
+    for sheet in payload.get("sheets", []) if isinstance(payload, dict) else []:
+        properties = sheet.get("properties", {}) if isinstance(sheet, dict) else {}
+        if properties.get("title") != sheet_name:
+            continue
+        return [
+            int(chart["chartId"])
+            for chart in sheet.get("charts", [])
+            if isinstance(chart, dict) and chart.get("chartId") is not None
+        ]
+    return []
+
+
+def plot_studio_setup_requests(
+    sheet_id: int,
+    sheet_ids: dict[str, int],
+    *,
+    is_new: bool,
+    chart_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Build a compact selector-driven plotting surface for routine lab data."""
+
+    chart_ids = chart_ids or []
+    rows = [[{} for _ in range(16)] for _ in range(9)]
+
+    def set_value(row: int, column: int, value: Any) -> None:
+        key = "formulaValue" if isinstance(value, str) and value.startswith("=") else "stringValue"
+        rows[row][column] = {"userEnteredValue": {key: str(value)}}
+
+    for row, column, value in (
+        (0, 0, "PLOT STUDIO"),
+        (1, 0, "Choose a run and metric. Charts update automatically as Bench Log and Measurements rows are added."),
+        (2, 0, "Run ID"),
+        (3, 0, "Process metric"),
+        (4, 0, "Measurement"),
+        (7, 0, "Timestamp"),
+        (7, 1, "Value"),
+        (8, 0, plot_studio_process_formula(1000)),
+        (7, 13, "Sample"),
+        (7, 14, "Value"),
+        (8, 13, plot_studio_measurement_formula(1000)),
+        (7, 15, "Available measurements"),
+        (8, 15, plot_studio_measurement_choices_formula(1000)),
+    ):
+        set_value(row, column, value)
+    if is_new:
+        set_value(2, 1, "EP-001")
+        set_value(3, 1, "Particle size (nm)")
+        set_value(4, 1, "DLS particle size")
+
+    content_requests: list[dict[str, Any]] = []
+    for row_index, values in enumerate(rows):
+        for column_index, cell in enumerate(values):
+            if not cell:
+                continue
+            content_requests.append(
+                {
+                    "updateCells": {
+                        "start": {"sheetId": sheet_id, "rowIndex": row_index, "columnIndex": column_index},
+                        "rows": [{"values": [cell]}],
+                        "fields": "userEnteredValue",
+                    }
+                }
+            )
+    requests: list[dict[str, Any]] = [
+        *content_requests,
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 12},
+                "cell": {"userEnteredFormat": {"backgroundColor": {"red": 0.07, "green": 0.18, "blue": 0.29}, "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 18}}},
+                "fields": "userEnteredFormat(backgroundColor,textFormat)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 12},
+                "cell": {"userEnteredFormat": {"backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.97}, "wrapStrategy": "WRAP"}},
+                "fields": "userEnteredFormat(backgroundColor,wrapStrategy)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 5, "startColumnIndex": 1, "endColumnIndex": 2},
+                "cell": {"userEnteredFormat": {"backgroundColor": {"red": 1, "green": 0.95, "blue": 0.72}, "textFormat": {"bold": True}}},
+                "fields": "userEnteredFormat(backgroundColor,textFormat)",
+            }
+        },
+        {
+            "setDataValidation": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 1, "endColumnIndex": 2},
+                "rule": {"condition": {"type": "ONE_OF_RANGE", "values": [{"userEnteredValue": "=Experiments!$A$2:$A$1000"}]}, "strict": True, "showCustomUi": True},
+            }
+        },
+        {
+            "setDataValidation": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 1, "endColumnIndex": 2},
+                "rule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": value} for value in PROCESS_METRICS]}, "strict": True, "showCustomUi": True},
+            }
+        },
+        {
+            "setDataValidation": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 4, "endRowIndex": 5, "startColumnIndex": 1, "endColumnIndex": 2},
+                "rule": {"condition": {"type": "ONE_OF_RANGE", "values": [{"userEnteredValue": "='Plot Studio'!$P$9:$P$100"}]}, "strict": True, "showCustomUi": True},
+            }
+        },
+        {"updateDimensionProperties": {"range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1}, "properties": {"pixelSize": 155}, "fields": "pixelSize"}},
+        {"updateDimensionProperties": {"range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2}, "properties": {"pixelSize": 180}, "fields": "pixelSize"}},
+        {"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 6, "hideGridlines": True}}, "fields": "gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
+    ]
+
+    process_spec = plot_studio_chart_spec(sheet_id, "process")
+    measurement_spec = plot_studio_chart_spec(sheet_id, "measurement")
+    specs = (process_spec, measurement_spec)
+    anchors = ((1, 3), (21, 3))
+    for index, (spec, anchor) in enumerate(zip(specs, anchors)):
+        if index < len(chart_ids):
+            chart_id = chart_ids[index]
+            requests.append({"updateChartSpec": {"chartId": chart_id, "spec": spec}})
+            requests.append(
+                {
+                    "updateEmbeddedObjectPosition": {
+                        "objectId": chart_id,
+                        "newPosition": {"overlayPosition": {"anchorCell": {"sheetId": sheet_id, "rowIndex": anchor[0], "columnIndex": anchor[1]}, "widthPixels": 720, "heightPixels": 360}},
+                        "fields": "anchorCell,widthPixels,heightPixels",
+                    }
+                }
+            )
+        elif is_new:
+            requests.append(
+                {
+                    "addChart": {
+                        "chart": {
+                            "spec": spec,
+                            "position": {"overlayPosition": {"anchorCell": {"sheetId": sheet_id, "rowIndex": anchor[0], "columnIndex": anchor[1]}, "widthPixels": 720, "heightPixels": 360}},
+                        }
+                    }
+                }
+            )
+    return requests
+
+
+def scientist_entry_setup_requests(
+    sheet_name: str,
+    sheet_id: int,
+    *,
+    validation_end_row: int = DEFAULT_VALIDATION_END_ROW,
+) -> list[dict[str, Any]]:
+    """Add simple run selection and calm input styling to compact entry sheets."""
+
+    column_count = len(sheet_by_name(sheet_name).headers)
+    return [
+        {
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": validation_end_row,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 1,
+                },
+                "rule": {
+                    "condition": {
+                        "type": "ONE_OF_RANGE",
+                        "values": [{"userEnteredValue": "=Experiments!$A$2:$A$1000"}],
+                    },
+                    "inputMessage": "Choose an existing run ID.",
+                    "strict": True,
+                    "showCustomUi": True,
+                },
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": validation_end_row,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": column_count,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 1, "green": 0.98, "blue": 0.90},
+                        "verticalAlignment": "MIDDLE",
+                        "wrapStrategy": "WRAP",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy)",
+            }
+        },
+    ]
+
+
+def plot_studio_chart_spec(sheet_id: int, kind: str) -> dict[str, Any]:
+    if kind == "process":
+        title, chart_type, domain_column, value_column, x_title = (
+            "Selected process metric",
+            "LINE",
+            0,
+            1,
+            "Timestamp",
+        )
+    else:
+        title, chart_type, domain_column, value_column, x_title = (
+            "Selected measurement",
+            "COLUMN",
+            13,
+            14,
+            "Sample",
+        )
+    return {
+        "title": title,
+        "subtitle": "Change the yellow selectors to update this chart",
+        "fontName": "Arial",
+        "basicChart": {
+            "chartType": chart_type,
+            "legendPosition": "NO_LEGEND",
+            "axis": [
+                {"position": "BOTTOM_AXIS", "title": x_title},
+                {"position": "LEFT_AXIS", "title": "Value"},
+            ],
+            "domains": [{"domain": {"sourceRange": {"sources": [{"sheetId": sheet_id, "startRowIndex": 7, "endRowIndex": 1000, "startColumnIndex": domain_column, "endColumnIndex": domain_column + 1}]}}}],
+            "series": [{"series": {"sourceRange": {"sources": [{"sheetId": sheet_id, "startRowIndex": 7, "endRowIndex": 1000, "startColumnIndex": value_column, "endColumnIndex": value_column + 1}]}}, "targetAxis": "LEFT_AXIS", "colorStyle": {"rgbColor": {"red": 0.10, "green": 0.48, "blue": 0.55}}}],
+            "headerCount": 1,
+        },
+    }
+
+
 def minimum_grid_column_count(sheet_name: str) -> int:
     if sheet_name == RUN_CONSOLE_SHEET:
         return RUN_CONSOLE_COLUMN_COUNT
     header_count = len(sheet_by_name(sheet_name).headers)
     if sheet_name == "Plot Dashboard":
         return max(header_count, PLOT_DASHBOARD_MIN_COLUMNS)
+    if sheet_name == "Plot Studio":
+        return 16
     return header_count
 
 
@@ -643,7 +1088,7 @@ def add_sheet_request(
             "rowCount": row_count,
             "columnCount": column_count,
             "frozenRowCount": 3 if sheet_name == RUN_CONSOLE_SHEET else 1,
-            "hideGridlines": sheet_name in {RUN_CONSOLE_SHEET, "Plot Dashboard"},
+            "hideGridlines": sheet_name in {RUN_CONSOLE_SHEET, "Plot Dashboard", "Plot Studio"},
         },
     }
     if index is not None:
@@ -668,7 +1113,7 @@ def sheet_grid_setup_request(
     grid_properties: dict[str, Any] = {
         "frozenRowCount": 1,
         "frozenColumnCount": frozen_column_count(sheet_name),
-        "hideGridlines": sheet_name == "Plot Dashboard",
+        "hideGridlines": sheet_name in {"Plot Dashboard", "Plot Studio"},
     }
     fields = [
         "gridProperties.frozenRowCount",
@@ -760,9 +1205,11 @@ def header_format_request(sheet_name: str, sheet_ids: dict[str, int]) -> dict[st
 def frozen_column_count(sheet_name: str) -> int:
     if sheet_name in {
         "Daily Log",
+        "Bench Log",
         "Batch Builder",
         "Formulations",
         "Results",
+        "Measurements",
         "Run Capture Plan",
         "Samples",
         "Deviations",
@@ -780,7 +1227,7 @@ def tab_color(sheet_name: str) -> dict[str, float]:
         return {"red": 0.10, "green": 0.48, "blue": 0.55}
     if sheet_name in REFERENCE_SHEETS:
         return {"red": 0.31, "green": 0.56, "blue": 0.36}
-    if sheet_name in {"Plot Dashboard", "Literature Evidence"}:
+    if sheet_name in {"Plot Dashboard", "Plot Studio", "Literature Evidence"}:
         return {"red": 0.40, "green": 0.31, "blue": 0.64}
     if sheet_name == "Agent Suggestions":
         return {"red": 0.82, "green": 0.52, "blue": 0.17}
@@ -944,13 +1391,13 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
     link_rows = (
         ("Experiment record", "Experiments"),
         ("Run plan", "Run Capture Plan"),
-        ("Bench observations", "Daily Log"),
+        ("Bench log", "Bench Log"),
         ("Batch quantities", "Batch Builder"),
         ("Samples", "Samples"),
-        ("Results", "Results"),
+        ("Measurements", "Measurements"),
         ("Raw files", "Raw Data Files"),
         ("Deviations", "Deviations"),
-        ("Plots", "Plot Dashboard"),
+        ("Plot studio", "Plot Studio"),
     )
     rows: list[list[Any]] = [
         ["EXPERIMENT OVERVIEW", "", "", "", "READINESS", "VALUE", "CHECK", "", "QUICK LINKS", ""],
@@ -959,9 +1406,9 @@ def run_console_content_rows(sheet_ids: dict[str, int]) -> list[list[Any]]:
         ["Process", run_console_lookup_formula("D"), "", "", "Equipment", run_console_lookup_formula("R"), '=IF($B$3="","",IF(F8<>"Not recorded","✓ Ready","⚠ Missing"))', "", link_rows[2][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[2][1]]}","Open →")'],
         ["Date", run_console_lookup_formula("B"), "", "", "Batch charges", '=IF($B$3="","",COUNTIF(\'Batch Builder\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F9>0,"✓ Quantified","⚠ Missing"))', "", link_rows[3][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[3][1]]}","Open →")'],
         ["Objective", run_console_lookup_formula("E"), "", "", "Run steps", '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))', "", link_rows[4][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[4][1]]}","Open →")'],
-        ["Hypothesis", run_console_lookup_formula("F"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
+        ["Hypothesis", run_console_lookup_formula("F"), "", "", "Observations", '=IF($B$3="","",COUNTIF(\'Bench Log\'!$A$2:$A$1000,$B$3)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))', "", link_rows[5][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[5][1]]}","Open →")'],
         ["Next step", run_console_lookup_formula("J"), "", "", "Samples", '=IF($B$3="","",COUNTIF(\'Samples\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))', "", link_rows[6][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[6][1]]}","Open →")'],
-        ["", "", "", "", "Results", '=IF($B$3="","",COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
+        ["", "", "", "", "Results", '=IF($B$3="","",COUNTIF(Measurements!$A$2:$A$1000,$B$3)+COUNTIF(\'Results\'!$A$2:$A$1000,$B$3))', '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))', "", link_rows[7][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[7][1]]}","Open →")'],
         ["", "", "", "", "Raw files", '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))', '=IF($B$3="","",IF(F14>0,"✓ Linked","⚠ Missing"))', "", link_rows[8][0], f'=HYPERLINK("#gid={sheet_ids[link_rows[8][1]]}","Open →")'],
         ["", "", "", "", "Open deviations", '=IF($B$3="","",COUNTIFS(\'Deviations\'!$B$2:$B$1000,$B$3,\'Deviations\'!$K$2:$K$1000,"<>closed"))', '=IF($B$3="","",IF(F15=0,"✓ Clear","⚠ Attention"))', "", "", ""],
         ["", "", "", "", "Reviewer", run_console_lookup_formula("U"), '=IF($B$3="","",IF(F16<>"Not recorded","✓ Ready","⚠ Missing"))', "", "", ""],
@@ -989,9 +1436,9 @@ def active_run_queue_formula(experiments_sheet_id: int) -> str:
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
         'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
-        'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
+        'IF((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
-        'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
+        'IF((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
         '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
@@ -1003,9 +1450,9 @@ def active_run_queue_formula(experiments_sheet_id: int) -> str:
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
         'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
-        'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
+        'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
-        'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
+        'N((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
         'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
         'N(reviewer<>""))/11)))'
@@ -1734,7 +2181,7 @@ def audit_report_against_snapshot(
         experiment_id = str(row.get("experiment_id", ""))
         if experiment_id and any(str(existing.get("experiment_id", "")) == experiment_id for existing in tables.get("Experiments", [])):
             errors.append({"code": "duplicate_append", "sheet": "Experiments", "key": "experiment_id", "value": experiment_id})
-    existing_result_keys = {result_row_key(row) for row in tables.get("Results", [])}
+    existing_result_keys = {result_row_key(row) for row in result_rows_from_tables(tables)}
     for row in result_rows:
         row_key = result_row_key(row)
         if row_key in existing_result_keys:
@@ -1746,7 +2193,7 @@ def audit_report_against_snapshot(
                     "value": "|".join(row_key),
                 }
             )
-    existing_daily_log_keys = {daily_log_row_key(row) for row in tables.get("Daily Log", [])}
+    existing_daily_log_keys = {daily_log_row_key(row) for row in daily_log_rows_from_tables(tables)}
     for row in daily_log_rows:
         row_key = daily_log_row_key(row)
         if row_key in existing_daily_log_keys:
@@ -2264,8 +2711,8 @@ def google_contract_migration_requests(
                         "old_value": "",
                         "new_value": WORKBOOK_CONTRACT_VERSION,
                         "reason": (
-                            "Add a scientist-facing staged batch builder with direct mass "
-                            "and PHR scaling, calculated volume, feed rate, and charge reconciliation."
+                            "Add compact scientist-facing Bench Log and Measurements entry "
+                            "tables plus a selector-driven Plot Studio while retaining legacy data."
                         ),
                         "source": "google-setup-live",
                     }

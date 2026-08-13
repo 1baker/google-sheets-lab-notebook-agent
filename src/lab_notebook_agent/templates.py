@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.comments import Comment
 from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -15,6 +16,13 @@ from .schema import (
     RUN_CONSOLE_SHEET,
     SHEETS,
     column_number_format,
+)
+from .scientist_workspace import (
+    PROCESS_METRICS,
+    plot_studio_measurement_choices_formula,
+    plot_studio_measurement_formula,
+    plot_studio_process_formula,
+    reaction_master_excel_formula,
 )
 
 
@@ -38,14 +46,19 @@ TECHNICAL_SHEETS = frozenset(
         "Workbook Metadata",
         "Audit Log",
         "Formulations",
+        "Daily Log",
+        "Results",
+        "Plot Dashboard",
     }
 )
 CORE_ENTRY_SHEETS = frozenset(
     {
         "Experiments",
+        "Reaction Master",
         "Batch Builder",
-        "Daily Log",
-        "Results",
+        "Bench Log",
+        "Measurements",
+        "Plot Studio",
         "Run Capture Plan",
         "Samples",
         "Deviations",
@@ -60,9 +73,11 @@ REFERENCE_SHEETS = frozenset(
 def freeze_pane_for_sheet(sheet_name: str) -> str:
     if sheet_name in {
         "Daily Log",
+        "Bench Log",
         "Batch Builder",
         "Formulations",
         "Results",
+        "Measurements",
         "Run Capture Plan",
         "Samples",
         "Deviations",
@@ -140,7 +155,7 @@ def sheet_tab_color(sheet_name: str) -> str:
         return "197A8C"
     if sheet_name in REFERENCE_SHEETS:
         return "4F8F5B"
-    if sheet_name in {"Plot Dashboard", "Literature Evidence"}:
+    if sheet_name in {"Plot Dashboard", "Plot Studio", "Literature Evidence"}:
         return "6650A3"
     if sheet_name == "Agent Suggestions":
         return "D1842B"
@@ -167,9 +182,9 @@ def local_active_run_queue_formula() -> str:
         'IF(protocol="","Link protocol",IF(equipment="","Link equipment",'
         'IF(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)=0,"Enter batch quantities",'
         'IF(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)=0,"Build run plan",'
-        'IF(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)=0,"Log observation",'
+        'IF((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))=0,"Log observation",'
         'IF(COUNTIF(Samples!$B$2:$B$1000,id)=0,"Register sample",'
-        'IF(COUNTIF(Results!$A$2:$A$1000,id)=0,"Record result",'
+        'IF((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))=0,"Record result",'
         'IF(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)=0,"Link raw file",'
         'IF(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")>0,'
         '"Resolve deviation",IF(reviewer="","Assign reviewer","Ready to close"))))))))))))))'
@@ -181,9 +196,9 @@ def local_active_run_queue_formula() -> str:
         'IF(id="","",(N(operator<>"")+N(protocol<>"")+N(equipment<>"")+'
         'N(COUNTIF(\'Batch Builder\'!$A$2:$A$1000,id)>0)+'
         'N(COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,id)>0)+'
-        'N(COUNTIF(\'Daily Log\'!$A$2:$A$1000,id)>0)+'
+        'N((COUNTIF(\'Bench Log\'!$A$2:$A$1000,id)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(Samples!$B$2:$B$1000,id)>0)+'
-        'N(COUNTIF(Results!$A$2:$A$1000,id)>0)+'
+        'N((COUNTIF(Measurements!$A$2:$A$1000,id)+COUNTIF(Results!$A$2:$A$1000,id))>0)+'
         'N(COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,id)>0)+'
         'N(COUNTIFS(Deviations!$B$2:$B$1000,id,Deviations!$K$2:$K$1000,"<>closed")=0)+'
         'N(reviewer<>""))/11)))'
@@ -267,13 +282,13 @@ def ensure_run_console(workbook: Workbook) -> None:
         "F10": '=IF($B$3="","",COUNTIF(\'Run Capture Plan\'!$A$2:$A$1000,$B$3))',
         "G10": '=IF($B$3="","",IF(F10>0,"✓ Ready","⚠ Missing"))',
         "E11": "Observations",
-        "F11": '=IF($B$3="","",COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))',
+        "F11": '=IF($B$3="","",COUNTIF(\'Bench Log\'!$A$2:$A$1000,$B$3)+COUNTIF(\'Daily Log\'!$A$2:$A$1000,$B$3))',
         "G11": '=IF($B$3="","",IF(F11>0,"✓ Logged","⚠ Missing"))',
         "E12": "Samples",
         "F12": '=IF($B$3="","",COUNTIF(Samples!$B$2:$B$1000,$B$3))',
         "G12": '=IF($B$3="","",IF(F12>0,"✓ Logged","⚠ Missing"))',
         "E13": "Results",
-        "F13": '=IF($B$3="","",COUNTIF(Results!$A$2:$A$1000,$B$3))',
+        "F13": '=IF($B$3="","",COUNTIF(Measurements!$A$2:$A$1000,$B$3)+COUNTIF(Results!$A$2:$A$1000,$B$3))',
         "G13": '=IF($B$3="","",IF(F13>0,"✓ Logged","⚠ Missing"))',
         "E14": "Raw files",
         "F14": '=IF($B$3="","",COUNTIF(\'Raw Data Files\'!$B$2:$B$1000,$B$3))',
@@ -331,13 +346,13 @@ def ensure_run_console(workbook: Workbook) -> None:
         (
             ("Experiment record", "Experiments"),
             ("Run plan", "Run Capture Plan"),
-            ("Bench observations", "Daily Log"),
+            ("Bench log", "Bench Log"),
             ("Batch quantities", "Batch Builder"),
             ("Samples", "Samples"),
-            ("Results", "Results"),
+            ("Measurements", "Measurements"),
             ("Raw files", "Raw Data Files"),
             ("Deviations", "Deviations"),
-            ("Plots", "Plot Dashboard"),
+            ("Plot studio", "Plot Studio"),
         ),
         start=6,
     ):
@@ -469,6 +484,31 @@ def apply_workbook_presentation(workbook: Workbook) -> None:
             cell.font = HEADER_FONT
             cell.alignment = Alignment(wrap_text=True, vertical="center")
     ensure_batch_builder(workbook)
+    ensure_reaction_master(workbook)
+    ensure_plot_studio(workbook)
+
+
+def ensure_reaction_master(workbook: Workbook, end_row: int = 1000) -> None:
+    """Populate the visible formula-driven index of every reaction run."""
+
+    if "Reaction Master" not in workbook.sheetnames:
+        return
+    worksheet = workbook["Reaction Master"]
+    headers = [str(cell.value or "") for cell in worksheet[1]]
+    for row_number in range(2, end_row + 1):
+        for column_number, header in enumerate(headers, start=1):
+            cell = worksheet.cell(row=row_number, column=column_number)
+            cell.value = reaction_master_excel_formula(header, row_number)
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+    worksheet.freeze_panes = "B2"
+    worksheet.auto_filter.ref = f"A1:T{end_row}"
+    for column in ("B", "P", "T"):
+        for row_number in range(2, end_row + 1):
+            worksheet[f"{column}{row_number}"].number_format = "yyyy-mm-dd hh:mm"
+    for column in ("J", "K", "L"):
+        for row_number in range(2, end_row + 1):
+            worksheet[f"{column}{row_number}"].number_format = "0.00"
 
 
 def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
@@ -511,6 +551,7 @@ def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
         "recorded_at",
         "charge_status",
         "notes",
+        "equivalent_basis_mmol",
     )
     for header in input_headers:
         column_number = headers.index(header) + 1
@@ -519,8 +560,95 @@ def ensure_batch_builder(workbook: Workbook, end_row: int = 100) -> None:
                 "solid", fgColor="FFF9E3"
             )
     worksheet.freeze_panes = "C2"
-    worksheet.auto_filter.ref = f"A1:AC{max(2, end_row)}"
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(2, end_row)}"
     worksheet.row_dimensions[1].height = 42
+
+
+def ensure_plot_studio(workbook: Workbook) -> None:
+    """Build a selector-driven plotting workspace for routine notebook data."""
+
+    if "Plot Studio" not in workbook.sheetnames:
+        return
+    worksheet = workbook["Plot Studio"]
+    selected_run = worksheet["B3"].value or "EP-001"
+    selected_metric = worksheet["B4"].value or "Particle size (nm)"
+    selected_measurement = worksheet["B5"].value or "DLS particle size"
+    for row in worksheet.iter_rows(min_row=1, max_row=max(60, worksheet.max_row), min_col=1, max_col=8):
+        for cell in row:
+            cell.value = None
+            cell.fill = PatternFill(fill_type=None)
+            cell.font = Font(name="Arial", size=10, color="1F2933")
+            cell.border = Border()
+    worksheet._charts = []
+    worksheet.auto_filter.ref = None
+    worksheet.sheet_view.showGridLines = False
+    worksheet.freeze_panes = "A7"
+    worksheet.sheet_properties.tabColor = "6650A3"
+    worksheet["A1"] = "PLOT STUDIO"
+    worksheet["A2"] = "Choose a run and metric. Charts update automatically as Bench Log and Measurements rows are added."
+    worksheet["A3"] = "Run ID"
+    worksheet["B3"] = selected_run
+    worksheet["A4"] = "Process metric"
+    worksheet["B4"] = selected_metric
+    worksheet["A5"] = "Measurement"
+    worksheet["B5"] = selected_measurement
+    worksheet["A7"] = "PROCESS TREND"
+    worksheet["A8"] = "Timestamp"
+    worksheet["B8"] = "Value"
+    worksheet["A9"] = plot_studio_process_formula(1000)
+    worksheet["D7"] = "MEASUREMENT TREND"
+    worksheet["D8"] = "Sample"
+    worksheet["E8"] = "Value"
+    worksheet["D9"] = plot_studio_measurement_formula(1000)
+    worksheet["G8"] = "Available measurements"
+    worksheet["G9"] = plot_studio_measurement_choices_formula(1000)
+
+    for row in (1, 7):
+        for cell in worksheet[row][:8]:
+            cell.fill = PatternFill("solid", fgColor=CONSOLE_NAVY if row == 1 else "6650A3")
+            cell.font = Font(name="Arial", size=18 if row == 1 else 11, bold=True, color="FFFFFF")
+    for cell in worksheet[2][:8]:
+        cell.fill = PatternFill("solid", fgColor=CONSOLE_PALE_BLUE)
+    for cell in (worksheet["B3"], worksheet["B4"], worksheet["B5"]):
+        cell.fill = PatternFill("solid", fgColor=CONSOLE_INPUT)
+        cell.font = Font(name="Arial", size=11, bold=True, color="1F2933")
+
+    run_validation = DataValidation(type="list", formula1="'Experiments'!$A$2:$A$1000", allow_blank=False)
+    metric_validation = DataValidation(type="list", formula1='"' + ",".join(PROCESS_METRICS) + '"', allow_blank=False)
+    measurement_validation = DataValidation(type="list", formula1="'Plot Studio'!$G$9:$G$100", allow_blank=True)
+    for validation, target in (
+        (run_validation, "B3"),
+        (metric_validation, "B4"),
+        (measurement_validation, "B5"),
+    ):
+        worksheet.add_data_validation(validation)
+        validation.add(target)
+
+    process_chart = LineChart()
+    process_chart.title = "Selected process metric"
+    process_chart.y_axis.title = "Value"
+    process_chart.x_axis.title = "Timestamp"
+    process_chart.height = 8
+    process_chart.width = 15
+    process_chart.add_data(Reference(worksheet, min_col=2, min_row=8, max_row=100), titles_from_data=True)
+    process_chart.set_categories(Reference(worksheet, min_col=1, min_row=9, max_row=100))
+    worksheet.add_chart(process_chart, "A12")
+
+    measurement_chart = BarChart()
+    measurement_chart.type = "col"
+    measurement_chart.title = "Selected measurement"
+    measurement_chart.y_axis.title = "Value"
+    measurement_chart.x_axis.title = "Sample"
+    measurement_chart.height = 8
+    measurement_chart.width = 15
+    measurement_chart.add_data(Reference(worksheet, min_col=5, min_row=8, max_row=100), titles_from_data=True)
+    measurement_chart.set_categories(Reference(worksheet, min_col=4, min_row=9, max_row=100))
+    worksheet.add_chart(measurement_chart, "I12")
+
+    for column, width in {"A": 22, "B": 22, "C": 3, "D": 22, "E": 18, "F": 3, "G": 26, "H": 3}.items():
+        worksheet.column_dimensions[column].width = width
+    worksheet.row_dimensions[1].height = 34
+    worksheet.row_dimensions[2].height = 28
 
 
 def build_workbook(include_examples: bool = True) -> Workbook:
@@ -604,6 +732,18 @@ def add_validations(workbook: Workbook) -> None:
         batch_builder.add_data_validation(validation)
         validation.add(f"{column_letter}2:{column_letter}1000")
 
+    for sheet_name in ("Bench Log", "Measurements"):
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        run_column = get_column_letter(headers.index("Run ID") + 1)
+        validation = DataValidation(
+            type="list", formula1="'Experiments'!$A$2:$A$1000", allow_blank=True
+        )
+        validation.error = "Choose an existing run ID."
+        validation.errorTitle = "Unknown run"
+        worksheet.add_data_validation(validation)
+        validation.add(f"{run_column}2:{run_column}1000")
+
 
 def add_workflow_note(workbook: Workbook) -> None:
     worksheet = workbook["Agent Config"]
@@ -613,7 +753,7 @@ def add_workflow_note(workbook: Workbook) -> None:
             (
                 "Enter reagents in Master Reagents, one experiment row in "
                 "Experiments, staged quantities in Batch Builder, observations "
-                "in Daily Log, and measurements in Results."
+                "in Bench Log, and measurements in Measurements."
             ),
             (
                 "Agent Suggestions should be treated as drafts until reviewed "
@@ -626,8 +766,8 @@ def add_workflow_note(workbook: Workbook) -> None:
         cell.alignment = Alignment(wrap_text=True, vertical="top")
     worksheet["A1"].comment = Comment(
         "Enter reagents in Master Reagents, one experiment row in Experiments, "
-        "staged quantities in Batch Builder, observations in Daily Log, and "
-        "measurements in Results. Agent Suggestions should be treated as drafts "
+        "staged quantities in Batch Builder, observations in Bench Log, and "
+        "measurements in Measurements. Agent Suggestions should be treated as drafts "
         "until reviewed by a human.",
         "lab-notebook-agent",
     )

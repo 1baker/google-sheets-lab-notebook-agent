@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from .batch_builder import formulation_rows_from_tables
 from .recommend import build_recommendation
 from .schema import SHEETS, sheet_by_name
+from .scientist_workspace import daily_log_rows_from_tables, result_rows_from_tables
 from .search import LocalSemanticIndex
 
 
@@ -77,8 +78,8 @@ def build_experiment_entry_from_tables(
         enrich_formulation_row(row, reagents_by_id)
         for row in matching_rows(formulation_rows_from_tables(tables), "experiment_id", experiment_id)
     ]
-    observations = matching_rows(tables.get("Daily Log", []), "experiment_id", experiment_id)
-    results = matching_rows(tables.get("Results", []), "experiment_id", experiment_id)
+    observations = matching_rows(daily_log_rows_from_tables(tables), "experiment_id", experiment_id)
+    results = matching_rows(result_rows_from_tables(tables), "experiment_id", experiment_id)
     process_records = [
         row
         for row in matching_rows(

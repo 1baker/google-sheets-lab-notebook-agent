@@ -24,6 +24,7 @@ from .sheets import (
     load_workbook_tables,
     update_workbook_rows_by_key,
 )
+from .scientist_workspace import daily_log_rows_from_tables
 
 
 OPEN_SUGGESTION_STATUSES = {"draft", "accepted", "run_planned"}
@@ -532,7 +533,7 @@ def selected_experiment_ids_for_date(
         status = str(row.get("status", "")).strip().lower()
         if experiment_id and status != "abandoned" and cell_date_matches(row.get("date", ""), review_date):
             dated_ids.add(experiment_id)
-    for row in tables.get("Daily Log", []):
+    for row in daily_log_rows_from_tables(tables):
         experiment_id = str(row.get("experiment_id", "")).strip()
         if experiment_id and cell_date_matches(row.get("timestamp", ""), review_date):
             dated_ids.add(experiment_id)

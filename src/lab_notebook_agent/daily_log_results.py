@@ -7,6 +7,7 @@ from typing import Any
 from .agent import cell_date_matches
 from .planning import result_row_key
 from .sheets import append_rows_to_workbook
+from .scientist_workspace import daily_log_rows_from_tables, result_rows_from_tables
 
 
 MEASUREMENT_FIELDS: dict[str, dict[str, str]] = {
@@ -189,13 +190,13 @@ def build_daily_log_results_report(
     selected_ids = {str(experiment_id) for experiment_id in experiment_ids if str(experiment_id).strip()}
     existing_results = [
         row
-        for row in tables.get("Results", [])
+        for row in result_rows_from_tables(tables)
         if isinstance(row, dict)
     ]
     existing_keys = {result_row_key(row) for row in existing_results}
     runs = []
 
-    for row_number, log_row in enumerate(tables.get("Daily Log", []), start=2):
+    for row_number, log_row in enumerate(daily_log_rows_from_tables(tables), start=2):
         if not isinstance(log_row, dict):
             continue
         experiment_id = str(log_row.get("experiment_id", "")).strip()

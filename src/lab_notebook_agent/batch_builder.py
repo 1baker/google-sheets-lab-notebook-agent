@@ -12,6 +12,10 @@ BATCH_BUILDER_FORMULA_COLUMNS = (
     "mass_variance_g",
     "actual_volume_mL",
     "feed_rate_mL_min",
+    "molecular_weight_g_mol",
+    "planned_moles_mmol",
+    "equivalents",
+    "actual_moles_mmol",
 )
 
 
@@ -46,6 +50,19 @@ def excel_batch_builder_formula(column_name: str, row_number: int) -> str:
         ),
         "feed_rate_mL_min": (
             f'=IF(OR($Q{row}="",$V{row}="",$V{row}=0),"",$Q{row}/$V{row})'
+        ),
+        "molecular_weight_g_mol": (
+            f'=IF($A{row}="","",IFERROR(VLOOKUP($G{row},'
+            f"'Master Reagents'!$A$2:$F$1000,6,FALSE),\"\"))"
+        ),
+        "planned_moles_mmol": (
+            f'=IF(OR($N{row}="",$AD{row}="",$AD{row}=0),"",$N{row}/$AD{row}*1000)'
+        ),
+        "equivalents": (
+            f'=IF(OR($AE{row}="",$AF{row}="",$AF{row}=0),"",$AE{row}/$AF{row})'
+        ),
+        "actual_moles_mmol": (
+            f'=IF(OR($R{row}="",$AD{row}="",$AD{row}=0),"",$R{row}*IF($M{row}="",1,$M{row})/$AD{row}*1000)'
         ),
     }
     try:
@@ -92,6 +109,22 @@ def google_batch_builder_array_formulas(end_row: int = 1000) -> dict[str, str]:
             f'=ARRAYFORMULA(IF((Q2:Q{end_row}="")+(V2:V{end_row}="")+'
             f'(V2:V{end_row}=0),"",Q2:Q{end_row}/V2:V{end_row}))'
         ),
+        "molecular_weight_g_mol": (
+            f'=ARRAYFORMULA(IF(A2:A{end_row}="","",IFNA(VLOOKUP('
+            f"G2:G{end_row},'Master Reagents'!A2:F1000,6,FALSE),\"\")))"
+        ),
+        "planned_moles_mmol": (
+            f'=ARRAYFORMULA(IF((N2:N{end_row}="")+(AD2:AD{end_row}="")+'
+            f'(AD2:AD{end_row}=0),"",N2:N{end_row}/AD2:AD{end_row}*1000))'
+        ),
+        "equivalents": (
+            f'=ARRAYFORMULA(IF((AE2:AE{end_row}="")+(AF2:AF{end_row}="")+'
+            f'(AF2:AF{end_row}=0),"",AE2:AE{end_row}/AF2:AF{end_row}))'
+        ),
+        "actual_moles_mmol": (
+            f'=ARRAYFORMULA(IF((R2:R{end_row}="")+(AD2:AD{end_row}="")+'
+            f'(AD2:AD{end_row}=0),"",R2:R{end_row}*IF(M2:M{end_row}="",1,M2:M{end_row})/AD2:AD{end_row}*1000))'
+        ),
     }
 
 
@@ -111,7 +144,7 @@ def batch_builder_to_formulation_row(row: dict[str, Any]) -> dict[str, Any]:
         "target_role": row.get("target_role", ""),
         "mass_g": row.get("planned_mass_g", "") or row.get("direct_mass_g", ""),
         "volume_mL": row.get("planned_volume_mL", ""),
-        "moles_mmol": "",
+        "moles_mmol": row.get("planned_moles_mmol", ""),
         "concentration": "",
         "concentration_units": "",
         "wt_percent": "",
@@ -135,6 +168,9 @@ def batch_builder_to_formulation_row(row: dict[str, Any]) -> dict[str, Any]:
         "target_temperature_C": row.get("target_temperature_C", ""),
         "charge_status": row.get("charge_status", ""),
         "stock_active_fraction": row.get("stock_active_fraction", ""),
+        "molecular_weight_g_mol": row.get("molecular_weight_g_mol", ""),
+        "equivalents": row.get("equivalents", ""),
+        "actual_moles_mmol": row.get("actual_moles_mmol", ""),
     }
     material_name = row.get("material_name", "")
     if material_name not in (None, ""):
