@@ -5,9 +5,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from openpyxl import Workbook
-from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl import Workbook, load_workbook
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
+from openpyxl.styles import Alignment, Font, PatternFill, Protection
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 
@@ -408,22 +409,23 @@ def build_ccsp_audit_report() -> dict[str, Any]:
         "schema": "ccsp-emulsion-reaction-audit.v1",
         "source": plan["source"],
         "important_values": [
-            "run identity and operator",
+            "run identity, operator, date, revision, reactor and pump map",
+            "reaction temperature, agitation, purge condition, and pump calibration status",
             "core/shell/functional-shell target fractions",
             "stage, addition group, material identity, PHR, scale factor, and allocation",
             "planned mass, controlled density, and calculated volume",
-            "solution active fraction, molecular weight, active mass, and active moles",
             "stage total mass and volume",
-            "polymer-forming and theoretical nonvolatile-solids fractions",
-            "main initiator, CTA, crosslinker, and monomer molar ratios",
-            "reaction temperature, feed duration, and target/result particle size",
+            "polymer-forming mass fraction",
+            "editable feed endpoints and distributions with calculated stream rates",
+            "live feed reconciliation, setup completeness, assumption, and release checks",
         ],
         "excluded_from_first_sheet": [
             "zero-quantity placeholder materials",
             "instantaneous radical-flux model",
             "syringe-diameter lookup table",
-            "three repeated time-feed matrices",
             "advanced surfactant CMC mixing model",
+            "active-mass, molecular-weight, molar-ratio, and per-charge source-note columns",
+            "observations, outcomes, signatures, and archival controls owned by the broader lab notebook",
         ],
         "source_findings": ccsp_source_audit(),
         "source_comparison": [
@@ -471,6 +473,8 @@ def build_ccsp_audit_report() -> dict[str, Any]:
             },
         ],
         "deterministic_result": {
+            "planning_calculation_ready": plan["checks"]["ready"],
+            "workbook_release_state": "NOT RELEASED until run setup, feed checks, and VERIFY assumptions pass",
             "stages": plan["stages"],
             "target_stage_fractions": plan["target_stage_fractions"],
             "actual_stage_fractions": plan["actual_stage_fractions"],
@@ -751,7 +755,7 @@ def _table_header(sheet: Any, row: int, headers: tuple[str, ...]) -> None:
     sheet.row_dimensions[row].height = 30
 
 
-def save_ccsp_reaction_workbook(output: str | Path) -> Path:
+def _save_ccsp_reaction_workbook_split(output: str | Path) -> Path:
     """Save the visually separated deterministic CCSP planning workbook."""
 
     output = Path(output)
@@ -1138,7 +1142,7 @@ def _feed_schedule_rows() -> tuple[tuple[str, float, float, float, float], ...]:
     )
 
 
-def save_ccsp_reaction_workbook(output: str | Path) -> Path:
+def _save_ccsp_reaction_workbook_simple(output: str | Path) -> Path:
     """Save a simple, color-coded reaction plan with an explicit feed schedule."""
 
     output = Path(output)
@@ -1378,6 +1382,245 @@ def save_ccsp_reaction_workbook(output: str | Path) -> Path:
                     updated_font.name = "Arial"
                     cell.font = updated_font
 
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    workbook.calculation.calcMode = "auto"
+    workbook.save(output)
+    return output
+
+
+def save_ccsp_reaction_workbook(output: str | Path) -> Path:
+    """Save the guarded four-view CCSP reaction-planning workbook."""
+
+    output = _save_ccsp_reaction_workbook_simple(output)
+    workbook = load_workbook(output)
+    reaction = workbook["Reaction Plan"]
+    feeds = workbook["Feed Schedule"]
+    checks = workbook["Checks"]
+    assumptions = workbook["Assumptions"]
+    input_yellow = PatternFill("solid", fgColor="FFF2CC")
+    output_green = PatternFill("solid", fgColor="E2F0D9")
+    warning_orange = PatternFill("solid", fgColor="FCE4D6")
+    error_red = PatternFill("solid", fgColor="F4CCCC")
+    recipe_start = 6
+    recipe_end = reaction.max_row
+    feed_start = 6
+    feed_end = feeds.max_row
+
+    # Compact run setup occupies the two existing pre-table rows.
+    setup = (
+        ("A3", "Run ID", "B3", ""),
+        ("C3", "Operator", "D3", ""),
+        ("E3", "Run date", "F3", ""),
+        ("G3", "Recipe revision", "H3", "v1"),
+        ("I3", "Reactor / pump map", "J3", ""),
+        ("A4", "Temperature (°C)", "B4", ""),
+        ("C4", "Agitation (rpm)", "D4", ""),
+        ("E4", "Purge condition", "F4", ""),
+        ("G4", "Pump calibration", "H4", "NOT VERIFIED"),
+        ("I4", "Release", "J4", "=Checks!$B$24"),
+    )
+    for row in reaction.iter_rows(min_row=3, max_row=4, min_col=1, max_col=10):
+        for cell in row:
+            cell.fill = PatternFill(fill_type=None)
+            cell.hyperlink = None
+    for label_cell, label, value_cell, value in setup:
+        reaction[label_cell] = label
+        reaction[label_cell].font = Font(name="Arial", size=9, bold=True, color="44546A")
+        reaction[value_cell] = value
+        reaction[value_cell].fill = output_green if value_cell == "J4" else input_yellow
+        reaction[value_cell].protection = Protection(locked=value_cell == "J4")
+        reaction[value_cell].alignment = Alignment(wrap_text=True, vertical="center")
+    reaction["F3"].number_format = "m/d/yyyy"
+    reaction["J4"].fill = warning_orange
+    reaction.row_dimensions[3].height = 24
+    reaction.row_dimensions[4].height = 30
+
+    # Genuine inputs are editable; calculated carries and outputs are protected.
+    for row_number in range(recipe_start, recipe_end + 1):
+        for column in (4, 5, 6, 8):
+            reaction.cell(row_number, column).protection = Protection(locked=False)
+        carry_cell = reaction.cell(row_number, 7)
+        if isinstance(carry_cell.value, str) and carry_cell.value.startswith("="):
+            carry_cell.fill = output_green
+            carry_cell.protection = Protection(locked=True)
+        else:
+            carry_cell.protection = Protection(locked=False)
+        for column in (9, 10):
+            reaction.cell(row_number, column).protection = Protection(locked=True)
+
+    nonnegative = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
+    nonnegative.error = "Enter zero or a positive number."
+    nonnegative.errorTitle = "Invalid quantity"
+    nonnegative.errorStyle = "stop"
+    nonnegative.showErrorMessage = True
+    fraction = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=False)
+    fraction.error = "Enter a fraction from 0% through 100%."
+    fraction.errorTitle = "Invalid fraction"
+    fraction.errorStyle = "stop"
+    fraction.showErrorMessage = True
+    positive_density = DataValidation(type="decimal", operator="greaterThan", formula1="0", allow_blank=False)
+    positive_density.error = "Density must be greater than zero."
+    positive_density.errorTitle = "Invalid density"
+    positive_density.errorStyle = "stop"
+    positive_density.showErrorMessage = True
+    reaction.add_data_validation(nonnegative)
+    nonnegative.add(f"D{recipe_start}:E{recipe_end}")
+    nonnegative.add(f"G{recipe_start}:G{recipe_end}")
+    reaction.add_data_validation(fraction)
+    fraction.add(f"F{recipe_start}:F{recipe_end}")
+    reaction.add_data_validation(positive_density)
+    positive_density.add(f"H{recipe_start}:H{recipe_end}")
+    temperature = DataValidation(type="decimal", operator="between", formula1="0", formula2="250", allow_blank=True)
+    agitation = DataValidation(type="whole", operator="between", formula1="0", formula2="5000", allow_blank=True)
+    calibration = DataValidation(type="list", formula1='"NOT VERIFIED,VERIFIED"', allow_blank=False)
+    for validation, target in ((temperature, "B4"), (agitation, "D4"), (calibration, "H4")):
+        reaction.add_data_validation(validation)
+        validation.add(target)
+
+    # Make editable feed inputs guarded and make bad intervals loud rather than zero.
+    for row_number in range(feed_start, feed_end + 1):
+        for column in (2, 4, 5, 6):
+            feeds.cell(row_number, column).protection = Protection(locked=False)
+        feeds.cell(row_number, 8, f'=IF(C{row_number}<=0,NA(),G{row_number}/C{row_number})')
+        feeds.cell(
+            row_number,
+            9,
+            feeds.cell(row_number, 9).value.replace("=IFERROR(", "=IF(C%d<=0,NA()," % row_number).replace(",0)", ")"),
+        )
+        feeds.cell(
+            row_number,
+            10,
+            feeds.cell(row_number, 10).value.replace("=IFERROR(", "=IF(C%d<=0,NA()," % row_number).replace(",0)", ")"),
+        )
+    time_order = DataValidation(
+        type="custom",
+        formula1='=OR(ROW()=6,$A6<>$A5,$B6>$B5)',
+        allow_blank=False,
+    )
+    time_order.error = "End times must increase within each stage."
+    time_order.errorTitle = "Invalid feed time"
+    time_order.errorStyle = "stop"
+    time_order.showErrorMessage = True
+    cumulative = DataValidation(
+        type="custom",
+        formula1='=AND($D6>=0,$D6<=1,OR(ROW()=6,$A6<>$A5,$D6>=$D5))',
+        allow_blank=False,
+    )
+    cumulative.error = "Cumulative emulsion must stay between 0% and 100% and cannot decrease."
+    cumulative.errorTitle = "Invalid cumulative feed"
+    cumulative.errorStyle = "stop"
+    cumulative.showErrorMessage = True
+    feed_fraction = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=False)
+    feed_fraction.error = "Enter an interval fraction from 0% through 100%."
+    feed_fraction.errorTitle = "Invalid feed fraction"
+    feed_fraction.errorStyle = "stop"
+    feed_fraction.showErrorMessage = True
+    for validation, target in (
+        (time_order, f"B{feed_start}:B{feed_end}"),
+        (cumulative, f"D{feed_start}:D{feed_end}"),
+        (feed_fraction, f"E{feed_start}:F{feed_end}"),
+    ):
+        feeds.add_data_validation(validation)
+        validation.add(target)
+    feeds.conditional_formatting.add(
+        f"C{feed_start}:C{feed_end}",
+        CellIsRule(operator="lessThanOrEqual", formula=["0"], fill=error_red),
+    )
+    feeds.conditional_formatting.add(
+        f"G{feed_start}:J{feed_end}",
+        CellIsRule(operator="lessThan", formula=["0"], fill=error_red),
+    )
+    feeds.conditional_formatting.add(
+        f"D{feed_start}:D{feed_end}",
+        FormulaRule(formula=['=AND($A6=$A5,$D6<$D5)'], fill=error_red),
+    )
+
+    # Rename the narrow legacy status and add live feed, setup, and release checks.
+    checks["A13"] = "Stage split check"
+    checks["B13"] = '=IF(B12<=0.005,"PASS","CHECK")'
+    checks.merge_cells("A15:J15")
+    checks["A15"] = "FEED SCHEDULE CHECKS"
+    checks["A15"].fill = PatternFill("solid", fgColor="2F75B5")
+    checks["A15"].font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    feed_check_headers = (
+        "Stage", "Final emulsion", "Ox total", "Red total", "Min interval",
+        "Emulsion delta (mL)", "Ox delta (mL)", "Red delta (mL)", "Negative rates", "Status",
+    )
+    for column, value in enumerate(feed_check_headers, start=1):
+        cell = checks.cell(16, column, value)
+        cell.fill = PatternFill("solid", fgColor="5B9BD5")
+        cell.font = Font(name="Arial", size=9, bold=True, color="FFFFFF")
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    checks.row_dimensions[16].height = 34
+    stages = ("Core", "Shell", "Functional Shell")
+    for row_number, stage in enumerate(stages, start=17):
+        stage_feed_rows = [
+            row for row in range(feed_start, feed_end + 1)
+            if feeds.cell(row, 1).value == stage
+        ]
+        checks.cell(row_number, 1, stage)
+        checks.cell(row_number, 2, f'=LOOKUP(2,1/(\'Feed Schedule\'!$A$6:$A${feed_end}=A{row_number}),\'Feed Schedule\'!$D$6:$D${feed_end})')
+        checks.cell(row_number, 3, f'=SUMIF(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$E$6:$E${feed_end})')
+        checks.cell(row_number, 4, f'=SUMIF(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$F$6:$F${feed_end})')
+        checks.cell(row_number, 5, f'=MIN(\'Feed Schedule\'!$C${stage_feed_rows[0]}:$C${stage_feed_rows[-1]})')
+        recipe_emulsion = (
+            f'SUMIFS(\'Reaction Plan\'!$J$6:$J${recipe_end},\'Reaction Plan\'!$A$6:$A${recipe_end},A{row_number},\'Reaction Plan\'!$B$6:$B${recipe_end},"Monomer pre-emulsion")+'
+            f'SUMIFS(\'Reaction Plan\'!$J$6:$J${recipe_end},\'Reaction Plan\'!$A$6:$A${recipe_end},A{row_number},\'Reaction Plan\'!$B$6:$B${recipe_end},"Aqueous pre-emulsion")'
+        )
+        recipe_oxidant = (
+            f'SUMIFS(\'Reaction Plan\'!$J$6:$J${recipe_end},\'Reaction Plan\'!$A$6:$A${recipe_end},A{row_number},\'Reaction Plan\'!$B$6:$B${recipe_end},"Redox feed",'
+            f'\'Reaction Plan\'!$C$6:$C${recipe_end},IF(A{row_number}="Shell","TBHP solution","APS solution"))'
+        )
+        recipe_reductant = (
+            f'SUMIFS(\'Reaction Plan\'!$J$6:$J${recipe_end},\'Reaction Plan\'!$A$6:$A${recipe_end},A{row_number},\'Reaction Plan\'!$B$6:$B${recipe_end},"Redox feed",'
+            f'\'Reaction Plan\'!$C$6:$C${recipe_end},IF(A{row_number}="Functional Shell","SFS solution","FF6 solution"))'
+        )
+        checks.cell(row_number, 6, f'=SUMIF(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$G$6:$G${feed_end})-({recipe_emulsion})')
+        checks.cell(row_number, 7, f'=SUMPRODUCT((\'Feed Schedule\'!$A$6:$A${feed_end}=A{row_number})*\'Feed Schedule\'!$C$6:$C${feed_end}*\'Feed Schedule\'!$I$6:$I${feed_end})-({recipe_oxidant})')
+        checks.cell(row_number, 8, f'=SUMPRODUCT((\'Feed Schedule\'!$A$6:$A${feed_end}=A{row_number})*\'Feed Schedule\'!$C$6:$C${feed_end}*\'Feed Schedule\'!$J$6:$J${feed_end})-({recipe_reductant})')
+        checks.cell(row_number, 9, f'=COUNTIFS(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$H$6:$H${feed_end},"<0")+COUNTIFS(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$I$6:$I${feed_end},"<0")+COUNTIFS(\'Feed Schedule\'!$A$6:$A${feed_end},A{row_number},\'Feed Schedule\'!$J$6:$J${feed_end},"<0")')
+        checks.cell(row_number, 10, f'=IFERROR(IF(AND(ABS(B{row_number}-1)<0.000001,ABS(C{row_number}-1)<0.000001,ABS(D{row_number}-1)<0.000001,E{row_number}>0,ABS(F{row_number})<0.001,ABS(G{row_number})<0.001,ABS(H{row_number})<0.001,I{row_number}=0),"PASS","CHECK"),"CHECK")')
+        for column in range(2, 11):
+            checks.cell(row_number, column).fill = output_green
+        for column in (2, 3, 4):
+            checks.cell(row_number, column).number_format = "0.0%"
+        for column in (5, 6, 7, 8):
+            checks.cell(row_number, column).number_format = "0.000"
+    checks["A21"] = "RELEASE GATE"
+    checks["A21"].font = Font(name="Arial", bold=True, color="1F4E78")
+    checks["A22"], checks["B22"] = "Run setup", '=IF(AND(COUNTA(\'Reaction Plan\'!B3,\'Reaction Plan\'!D3,\'Reaction Plan\'!F3,\'Reaction Plan\'!H3,\'Reaction Plan\'!J3,\'Reaction Plan\'!B4,\'Reaction Plan\'!D4,\'Reaction Plan\'!F4)=8,\'Reaction Plan\'!H4="VERIFIED"),"PASS","CHECK")'
+    checks["A23"], checks["B23"] = "Open VERIFY assumptions", '=COUNTIF(Assumptions!$A$6:$A$11,"VERIFY")'
+    checks["A24"], checks["B24"] = "Overall release", '=IF(AND(B13="PASS",COUNTIF(J17:J19,"<>PASS")=0,B22="PASS",B23=0),"READY","NOT RELEASED")'
+    for cell in ("B22", "B23", "B24"):
+        checks[cell].fill = output_green if cell != "B24" else warning_orange
+    checks.conditional_formatting.add("B13:J24", CellIsRule(operator="equal", formula=['"CHECK"'], fill=error_red))
+    checks.conditional_formatting.add("B24", CellIsRule(operator="equal", formula=['"NOT RELEASED"'], fill=error_red))
+    checks.conditional_formatting.add("B13:J24", CellIsRule(operator="equal", formula=['"PASS"'], fill=output_green))
+    for column, width in {"A": 22, "B": 15, "C": 13, "D": 13, "E": 13, "F": 19, "G": 16, "H": 16, "I": 15, "J": 14}.items():
+        checks.column_dimensions[column].width = width
+
+    assumption_status = DataValidation(type="list", formula1='"VERIFY,RESOLVED"', allow_blank=False)
+    assumptions.add_data_validation(assumption_status)
+    assumption_status.add("A6:A7")
+    for row_number in (6, 7):
+        assumptions.cell(row_number, 1).fill = input_yellow
+        assumptions.cell(row_number, 1).protection = Protection(locked=False)
+
+    # Group stages for optional collapse and protect every formula-bearing view.
+    stage_rows: dict[str, list[int]] = {stage: [] for stage in STAGE_ORDER}
+    for row_number in range(recipe_start, recipe_end + 1):
+        stage_rows[reaction.cell(row_number, 1).value].append(row_number)
+    for rows in stage_rows.values():
+        reaction.row_dimensions.group(rows[0], rows[-1], outline_level=1, hidden=False)
+    for sheet in (reaction, feeds, checks, assumptions):
+        sheet.protection.sheet = True
+        sheet.protection.autoFilter = False
+        sheet.protection.sort = False
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 1
+    reaction.freeze_panes = "D6"
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
     workbook.calculation.calcMode = "auto"

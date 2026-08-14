@@ -82,6 +82,7 @@ class EmulsionReactionSheetTests(unittest.TestCase):
         report = build_ccsp_audit_report()
         self.assertEqual(SOURCE_SHEET, report["source"]["sheet"])
         self.assertTrue(report["deterministic_result"]["checks"]["ready"])
+        self.assertIn("NOT RELEASED", report["deterministic_result"]["workbook_release_state"])
         json.dumps(report)
 
     def test_generated_workbook_is_simple_color_coded_and_has_feed_rates(self) -> None:
@@ -100,6 +101,19 @@ class EmulsionReactionSheetTests(unittest.TestCase):
             self.assertIn("IFERROR", recipe["J6"].value)
             self.assertEqual("00FFF2CC", recipe["D6"].fill.fgColor.rgb)
             self.assertEqual("00E2F0D9", recipe["I6"].fill.fgColor.rgb)
+            self.assertEqual("Run ID", recipe["A3"].value)
+            self.assertEqual("NOT VERIFIED", recipe["H4"].value)
+            self.assertEqual("=Checks!$B$24", recipe["J4"].value)
+            self.assertTrue(recipe.protection.sheet)
+            self.assertFalse(recipe["D6"].protection.locked)
+            self.assertTrue(recipe["I6"].protection.locked)
+            carry_row = next(
+                row for row in range(6, recipe.max_row + 1)
+                if recipe.cell(row, 3).value == "Core Latex"
+            )
+            self.assertEqual("00E2F0D9", recipe.cell(carry_row, 7).fill.fgColor.rgb)
+            self.assertTrue(recipe.cell(carry_row, 7).protection.locked)
+            self.assertGreaterEqual(len(recipe.data_validations.dataValidation), 6)
 
             feeds = workbook["Feed Schedule"]
             self.assertEqual("End time (min)", feeds["B5"].value)
@@ -107,17 +121,27 @@ class EmulsionReactionSheetTests(unittest.TestCase):
             self.assertEqual("Oxidant rate (mL/min)", feeds["I5"].value)
             self.assertEqual("Reductant rate (mL/min)", feeds["J5"].value)
             self.assertIn("SUMIFS", feeds["G6"].value)
-            self.assertIn("IFERROR", feeds["I6"].value)
+            self.assertIn("NA()", feeds["H6"].value)
+            self.assertNotIn("IFERROR", feeds["I6"].value)
             self.assertEqual("00FFF2CC", feeds["B6"].fill.fgColor.rgb)
             self.assertEqual("00E2F0D9", feeds["H6"].fill.fgColor.rgb)
+            self.assertTrue(feeds.protection.sheet)
+            self.assertFalse(feeds["B6"].protection.locked)
+            self.assertTrue(feeds["H6"].protection.locked)
+            self.assertEqual(3, len(feeds.data_validations.dataValidation))
 
             checks = workbook["Checks"]
             self.assertIn("SUMIF", checks["B6"].value)
             self.assertIn("ABS", checks["B12"].value)
+            self.assertEqual("Stage split check", checks["A13"].value)
+            self.assertEqual("FEED SCHEDULE CHECKS", checks["A15"].value)
+            self.assertIn("SUMPRODUCT", checks["G17"].value)
+            self.assertIn("NOT RELEASED", checks["B24"].value)
 
             assumptions = workbook["Assumptions"]
             self.assertEqual("Status", assumptions["A5"].value)
             self.assertEqual("VERIFY", assumptions["A6"].value)
+            self.assertFalse(assumptions["A6"].protection.locked)
 
 
 if __name__ == "__main__":

@@ -16,9 +16,10 @@ rates are not buried under chemistry metadata or audit prose:
 4. `Assumptions` — a concise issue register; detailed evidence remains in the
    companion audit JSON and this document.
 
-Yellow cells are editable inputs or controlled properties. Green cells are
-calculated. The visible release state remains `OPEN` while source-dependent
-material assumptions still require confirmation.
+Yellow cells are validated inputs or controlled properties. Green cells are
+protected calculations. The visible release state remains `NOT RELEASED` until
+the run setup is complete, every feed schedule reconciles, and all `VERIFY`
+assumptions are resolved.
 
 The source workbook remains read-only. The v1 planner is generated locally by:
 
@@ -36,15 +37,16 @@ PYTHONPATH=src python3 -m lab_notebook_agent.cli ccsp-reaction-sheet \
 - Controlled material identity and role.
 - PHR, stage factor, allocation fraction, or explicit carry mass.
 - Planned mass, density, and volume using one row-local equation.
-- Solution active fraction, active mass, molecular weight, and active moles.
 - Stage total mass and volume.
-- Polymer-forming mass fraction and theoretical nonvolatile-solids fraction as
-  separate quantities.
+- Polymer-forming mass and polymer-solids fraction.
 - Target versus actual core/shell/functional-shell mass split.
-- Core monomer:initiator, CTA:initiator, and crosslinker:CTA ratios.
 - Core, shell, and functional-shell time intervals and calculated feed rates
   for emulsion, oxidant, and reductant streams.
-- Source cell and normalization note for every retained charge.
+- Run ID, operator, date, recipe revision, reactor/pump map, temperature,
+  agitation, purge condition, and pump-calibration status.
+- Live checks for increasing feed time, nondecreasing cumulative emulsion,
+  100% stream allocation, scheduled-versus-recipe volume, negative rates,
+  setup completeness, open assumptions, and overall release state.
 
 Zero-quantity placeholders are omitted from the main plan. They can be added
 when actually required without changing the calculation rules.
@@ -54,12 +56,27 @@ when actually required without changing the calculation rules.
 - Instantaneous radical-flux modeling.
 - Syringe-diameter lookup tables.
 - Advanced mixed-surfactant CMC calculations.
+- Per-charge active fraction, active mass, molecular weight, molar ratios,
+  source cell, and normalization-note columns. These remain in the calculation
+  engine and audit rather than the simplified bench interface.
 - Observations, measurements, outcomes, and signature workflow already owned by
   the broader lab-notebook contract.
 
 These are not required to answer the first planning question: **what is being
 charged, how much is charged, what does that amount mean chemically, and do the
 stage totals and key ratios reconcile?**
+
+## Guardrails
+
+- Yellow recipe and feed cells use stop-style Excel validation.
+- Green formulas and calculated carry-forward cells are protected from routine
+  editing; sheets may still be deliberately unprotected for controlled repair.
+- Invalid or zero feed intervals return a visible calculation error rather than
+  a plausible zero rate.
+- The `Checks` view distinguishes the narrow stage-split check from feed checks
+  and the overall release gate.
+- The initial workbook is intentionally `NOT RELEASED`: pump calibration and
+  run metadata are blank, and MMA density plus Dowfax actives remain `VERIFY`.
 
 ## Confirmed source issues corrected or surfaced
 
@@ -75,7 +92,8 @@ stage totals and key ratios reconcile?**
    and actual values separately.
 5. Source solids formulas omit at least the shell BDDMA charge and do not state
    whether “solids” means polymer-forming material or all nonvolatile material.
-   V1 reports both definitions.
+   The workbook shows polymer solids; the companion audit reports both polymer
+   and theoretical nonvolatile definitions.
 6. Dowfax 2A1 is treated as 100% active in the source. V1 preserves that source
    assumption but marks product actives as a required verification.
 

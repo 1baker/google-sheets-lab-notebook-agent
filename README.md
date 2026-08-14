@@ -6,7 +6,9 @@ For the deliberately smaller, formulation-first CCSP emulsion-polymerization
 planner, see [docs/ccsp-emulsion-reaction-sheet-v1.md](docs/ccsp-emulsion-reaction-sheet-v1.md)
 or generate it directly. Its four focused views separate the reaction plan,
 feed schedule, stage checks, and unresolved assumptions. Yellow cells are
-inputs and green cells are calculated outputs:
+validated inputs and green cells are protected calculated outputs. The workbook
+stays `NOT RELEASED` until run setup, feed reconciliation, and open assumptions
+all pass:
 
 ```bash
 PYTHONPATH=src python3 -m lab_notebook_agent.cli ccsp-reaction-sheet \
