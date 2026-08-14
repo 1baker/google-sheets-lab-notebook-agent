@@ -6,6 +6,7 @@ from typing import Any
 from .agent import AgentRunConfig, build_agent_report
 from .preflight import build_experiment_preflight_report
 from .search import LocalSemanticIndex
+from .scientist_workspace import result_rows_from_tables
 
 
 EMULSION_CURRENT_RESULT_METRICS = {
@@ -303,7 +304,7 @@ def current_result_metric_gaps(
         return []
     present = {
         result_metric_key(row)
-        for row in tables.get("Results", [])
+        for row in result_rows_from_tables(tables)
         if str(row.get("experiment_id", "")).strip() == experiment_id
     }
     present.discard("")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .scientist_workspace import result_rows_from_tables
+
 
 def build_historical_result_context(
     tables: dict[str, list[dict[str, Any]]],
@@ -15,7 +17,7 @@ def build_historical_result_context(
     ]
     current = next((row for row in experiments if str(row.get("experiment_id", "")).strip() == experiment_id), {})
     process_type = str(current.get("process_type", "")).strip().lower()
-    results_by_experiment = group_rows_by_experiment(tables.get("Results", []))
+    results_by_experiment = group_rows_by_experiment(result_rows_from_tables(tables))
     current_results = results_by_experiment.get(experiment_id, [])
     prior_experiments = []
     for row in experiments:

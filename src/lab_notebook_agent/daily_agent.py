@@ -535,7 +535,7 @@ def daily_experiment_next_step(experiment_id: str, review: dict[str, Any], run: 
     if daily_experiment_count(experiment_id, run, "append_agent_suggestions"):
         return "Review draft Agent Suggestions and set status to accepted or rejected before materialization."
     if daily_experiment_count(experiment_id, run, "append_results"):
-        return "Review normalized Daily Log measurements in Results."
+        return "Review normalized Bench Log measurements in Measurements."
     if daily_experiment_count(experiment_id, run, "update_formulations"):
         return "Review normalized Formulations quantities before relying on follow-up calculations."
     if daily_experiment_count(experiment_id, run, "append_literature_evidence"):

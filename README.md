@@ -1,8 +1,23 @@
 # Lab Notebook Agent
 
 This is the first scaffold for a Google Sheets-based daily lab notebook agent.
-The workbook is the primary interface: users enter reagents, formulation rows,
-observations, results, and literature evidence in consistent tabs. The local CLI
+
+For the deliberately smaller, formulation-first CCSP emulsion-polymerization
+planner, see [docs/ccsp-emulsion-reaction-sheet-v1.md](docs/ccsp-emulsion-reaction-sheet-v1.md)
+or generate it directly. Its four focused views separate the reaction plan,
+feed schedule, stage checks, and unresolved assumptions. Yellow cells are
+validated inputs and green cells are protected calculated outputs. The workbook
+stays `NOT RELEASED` until run setup, feed reconciliation, and open assumptions
+all pass:
+
+```bash
+PYTHONPATH=src python3 -m lab_notebook_agent.cli ccsp-reaction-sheet \
+  --output artifacts/ccsp_emulsion_reaction_v1.xlsx \
+  --audit-output artifacts/ccsp_emulsion_reaction_audit_v1.json
+```
+The workbook is the primary interface: scientists begin in the `Run Console`,
+then enter reagents, formulation rows, observations, results, and literature
+evidence in consistent tabs. The local CLI
 generates that workbook, searches curated process knowledge, and drafts a next
 experiment recommendation with copy/paste-ready LitScout commands for literature
 evidence.
@@ -18,10 +33,12 @@ PYTHONPATH=src python3 -m lab_notebook_agent.cli search-materials --workbook art
 PYTHONPATH=src python3 -m lab_notebook_agent.cli suggest --entry examples/emulsion_polymerization_entry.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli audit-workbook --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --output artifacts/ep-001-material-audit.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli experiment-preflight --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --stage review --output artifacts/ep-001-preflight-review.json
+PYTHONPATH=src python3 -m lab_notebook_agent.cli experiment-preflight --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --stage archive --output artifacts/ep-001-preflight-archive.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli record-experiment --record examples/emulsion_polymerization_record.json --report-output artifacts/record-ep-010.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli record-daily-agent-run --workbook artifacts/lab_notebook_template.xlsx --record examples/emulsion_polymerization_record.json --run-output artifacts/record-daily-agent-ep-010.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli normalize-formulations --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --report-output artifacts/formulation-normalization-ep-001.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli normalize-daily-log-results --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-001 --report-output artifacts/daily-log-results-ep-001.json
+PYTHONPATH=src python3 -m lab_notebook_agent.cli plot-notebook --workbook artifacts/lab_notebook_template.xlsx --apply --report-output artifacts/plot-refresh.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli daily-summary --workbook artifacts/lab_notebook_template.xlsx --review-date 2026-06-09 --output artifacts/daily-summary-2026-06-09.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli daily-agent-run --workbook artifacts/lab_notebook_template.xlsx --review-date 2026-06-09 --litscout-export artifacts/litscout-ep-001.json --run-output artifacts/daily-agent-run-2026-06-09.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli scaffold-materials --workbook artifacts/lab_notebook_template.xlsx --experiment-id EP-002 --process-type "emulsion polymerization" --report-output artifacts/material-scaffold-ep-002.json
@@ -41,16 +58,107 @@ automation.
 
 ## Workbook Tabs
 
+- `Reaction Master`: the auto-updating index of every reaction. It links each
+  run to its date, project, process, objective, status, operator, protocol, and
+  equipment, then rolls up planned and actual charge mass, mass variance,
+  charged-step count, bench-entry count, measurement count, latest activity,
+  target batch mass, planned/actual mass balance, completion, charge-tolerance
+  failures, calculation issues, completion summary, reviewer, and the next
+  notebook action. It also reports governed template/version, linked material
+  transactions, signature/witness state, and a governance readiness status.
+  Scientists do not
+  type into this tab; it updates from `Experiments`, `Batch Builder`, `Bench
+  Log`, and `Measurements`.
+- `Run Console`: the scientist-facing front door. Select one experiment to see
+  its objective and next step, assess operator/protocol/equipment/data/review
+  readiness, work from a current-run queue, and jump directly to the relevant
+  logging table. The queue always includes planned and running experiments; it
+  includes needs-review records only when they are native/current rather than
+  imported history. Each queue row calculates an eleven-point completeness score
+  and names the first missing operational action.
+- `Batch Builder`: the primary scientist-facing quantity entry sheet, modeled
+  on the staged charge tables in the historical reaction notebooks. Enter one
+  row per initial charge, addition, feed, hold, quench, workup, or purification
+  step. Choose one explicit calculation mode per row: direct mass, batch wt%,
+  parts per hundred monomer, target active mass, molar equivalents, or
+  functional equivalents. It supports direct scale readings and
+  source-container weighing by difference, and separates active material from
+  inactive carrier contribution. The sheet
+  calculates the as-supplied mass to weigh, active mass, density-backed volume,
+  actual variance and percent error, tolerance status, feed rate, molecular
+  weight, planned and actual mmol, equivalents, and the first actionable
+  formula problem. Pale-yellow cells are inputs and
+  pale-blue cells are calculated. Reagent names and default densities come from
+  `Master Reagents`; actual mass, lot, operator, timestamp, and charge status
+  make the table usable at the bench.
+- `Bench Log`: the compact primary observation-entry table. Its plain-language
+  columns keep run ID, time, stage, common process readings, the observation,
+  issue tags, and an attachment link together without exposing the wider
+  machine-oriented Daily Log schema.
+- `Measurements`: the compact primary results-entry table for sample ID,
+  measurement, numeric value, units, condition, uncertainty, quality, analyst,
+  raw-file link, and interpretation.
+- `Notebook Sections`: ordered objective, safety, setup, procedure,
+  observation, workup, result, and conclusion blocks. Requiredness, completion
+  state, author, timestamps, and attachments turn free-form narrative into a
+  reviewable experiment record without removing scientific prose.
+- `Reaction Outcomes`: one structured closeout row per product/run. It links
+  the product sample, records theoretical and recovered product, calculates
+  isolated yield, rolls up actual charged mass from `Batch Builder`, and closes
+  the material balance across retained product, samples, waste, process loss,
+  and expected non-product loss. Yellow cells are inputs; blue cells calculate.
+- `Plot Studio`: select a run, a process metric, and a measurement from
+  dropdowns. Two charts update automatically from Bench Log and Measurements;
+  no plot definitions or manual range editing are required.
 - `Master Reagents`: canonical inventory and physical properties such as role,
   molecular weight, density, supplier, lot, hazards, and notes.
 - `Experiments`: one row per planned or completed experiment.
-- `Daily Log`: timestamped observations and structured run/test measurements.
-- `Formulations`: reagent amounts, phases, roles, feed timing, and notes.
-- `Results`: measurements and interpretations.
+- `Daily Log`: hidden legacy/normalized observations retained for compatibility.
+- `Formulations`: hidden normalized/legacy formulation rows retained for agent
+  and integration compatibility. Scientists should enter new quantities in
+  `Batch Builder`.
+- `Results`: hidden legacy/normalized results retained for compatibility.
 - `Literature Evidence`: rows exported or summarized from LitScout.
 - `Agent Suggestions`: recommendations the agent proposes back to the user,
   including structured proposed-plan JSON for accepted follow-ups.
 - `Daily Reviews`: one compact status row per daily agent run.
+- `Project Notebook Records`: provenance-preserving components, calculated
+  process parameters, feed steps, observations, and results imported from
+  project-specific source notebooks.
+- `Source Sync`: one fingerprinted synchronization state row per source tab,
+  used to make repeat imports idempotent and auditable.
+- `Plot Data`: managed, numeric, provenance-backed chart points grouped into
+  contiguous plot blocks. Each point retains its source record IDs and ranges.
+- `Plot Definitions`: stable chart IDs, titles, axes, series, exact data-row
+  bounds, point counts, and readiness status.
+- `Plot Dashboard`: chart inventory plus managed Excel or Google embedded
+  charts. It is rebuilt from the two plotting tabs.
+- `Workbook Metadata`: contract name/version, workbook timezone, and last
+  successful migration state.
+- `Run Capture Plan`: ordered operator actions, targets, operating limits,
+  completion state, and linked deviations for an active run.
+- `Samples`: sample and aliquot lineage, collection context, storage,
+  disposition, and raw-data links.
+- `Equipment`: instrument/reactor identity, location, and calibration state.
+- `Protocols`: versioned SOP or method records and their controlled sources.
+- `Specifications`: draft or active targets and acceptance limits used for
+  explicit result assessment.
+- `Deviations`: documented departures from the approved plan, impact review,
+  disposition, owner, and closure state.
+- `Raw Data Files`: immutable file provenance, instrument/sample linkage,
+  checksums, and parser state.
+- `Experiment Templates`: governed, versioned experiment layouts with
+  draft/effective/superseded/withdrawn lifecycle, required capture sections,
+  default protocol, and review route.
+- `Inventory Transactions`: append-only reagent consumption, addition,
+  adjustment, transfer, and disposal events linked to experiments and charges.
+- `Equipment Bookings`: scheduled usage, calibration, and maintenance windows
+  linked to instruments and experiments.
+- `Record Signatures`: author/reviewer signoff events, record fingerprints, and
+  independent witnessing. This is a traceable spreadsheet workflow, not by
+  itself a 21 CFR Part 11 certification or cryptographic lock.
+- `Audit Log`: append-only create, update, correction, import, and migration
+  events with actor, reason, and before/after values.
 - `Process Knowledge`: compact process priors used for semantic lookup.
 - `Controlled Vocab`: dropdown values shared by tabs, including process types,
   reagent categories, formulation roles, process stages, result quality flags,
@@ -60,6 +168,29 @@ automation.
 Schema extensions are append-only for live compatibility. New Daily Log outcome
 fields and Agent Suggestions structured-plan fields are added after the original
 live columns so setup refreshes do not shift historical row meanings.
+
+The current workbook contract is `0.12.0`. `google-setup-live` is an idempotent
+migration: it creates or refreshes the Run Console, preserves its active
+experiment selection, creates the compact scientist entry sheets, Plot Studio,
+Batch Builder, and other missing tabs, appends missing controlled
+vocabulary and configuration rows, records contract metadata and an audit
+event, repairs parseable numeric/date cells to native Google values, adds header
+notes and number formats, and applies QC/deviation status coloring. It uses
+bounded column widths, color-coded tab groups, frozen identifier columns, and
+hides implementation tabs so the workbook opens as a practical bench tool.
+Managed chart IDs live in chart alt text, keeping dashboard titles clean.
+Existing laboratory rows are preserved. Use `--no-type-normalization` only when
+legacy cells must remain text for an external consumer.
+
+The evidence and product patterns behind the record-quality gates are documented
+in [Evidence-based lab-record design](docs/evidence-based-lab-record-design.md).
+
+For the automatic mass workflow, see the
+[implementation prompt](docs/automatic-mass-spreadsheet-implementation-prompt.md)
+and the [scientist guide](docs/automatic-mass-spreadsheet-guide.md).
+The [ELN market benchmark](docs/eln-market-benchmark.md) records which current
+product patterns informed the governed-template, material-ledger, scheduling,
+and signoff additions.
 
 Agent runs read supported `Agent Config` defaults from the workbook or snapshot:
 `default_context_limit`, `default_history_limit`, `default_evidence_limit`,
@@ -484,13 +615,25 @@ See [docs/live-google-sheets-workflow.md](docs/live-google-sheets-workflow.md)
 for the re-authenticated Google Sheets connector capture, audit, and apply
 workflow.
 
+See
+[docs/cochran-project-notebook-sync.md](docs/cochran-project-notebook-sync.md)
+for the Cochran Research Group emulsion-polymerization source inventory, the
+normalized data contract derived from Vivek Garg's spreadsheets, and the
+read-only-source synchronization command.
+
+See [docs/plotting-workflow.md](docs/plotting-workflow.md) for plot inputs,
+generated chart families, provenance rules, local/Google refresh commands, and
+the fields that should be recorded during a run. A project-notebook sync
+automatically rebuilds plot records and reconciles managed charts; the
+standalone commands refresh charts after manual Daily Log or Results changes.
+
 ## Notebook Search
 
 `search-knowledge` searches the bundled process-knowledge records.
 `search-notebook` searches the actual notebook rows from a workbook or Google
 Sheets snapshot, including Master Reagents, Experiments, Daily Log,
 Formulations, Results, Literature Evidence, Agent Suggestions, Daily Reviews,
-and Process Knowledge.
+Project Notebook Records, Source Sync, and Process Knowledge.
 
 ```bash
 PYTHONPATH=src python3 -m lab_notebook_agent.cli search-notebook \

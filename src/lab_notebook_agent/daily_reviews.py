@@ -89,7 +89,7 @@ def daily_review_next_actions(run: dict[str, Any]) -> list[str]:
     actions: list[str] = []
     summary = run.get("summary", {}) if isinstance(run.get("summary"), dict) else {}
     if int(summary.get("normalized_result_rows_to_append", 0) or 0):
-        actions.append("Apply or review normalized Daily Log measurements in Results.")
+        actions.append("Apply or review normalized Bench Log measurements in Measurements.")
     if int(summary.get("formulation_cells_to_update", 0) or 0):
         actions.append("Apply or review normalized Formulations quantities before relying on follow-up calculations.")
     if int(summary.get("evidence_rows_to_append", 0) or 0):

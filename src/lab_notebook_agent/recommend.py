@@ -132,6 +132,7 @@ def entry_query(entry: dict[str, Any]) -> str:
             flatten_text(entry.get("observations", "")),
             flatten_text(entry.get("results", "")),
             flatten_text(entry.get("formulation", "")),
+            flatten_text(entry.get("process_records", "")),
         ]
     )
 

@@ -14,6 +14,8 @@ DEFAULT_SEARCH_SHEETS = (
     "Literature Evidence",
     "Agent Suggestions",
     "Daily Reviews",
+    "Project Notebook Records",
+    "Source Sync",
     "Process Knowledge",
 )
 
@@ -26,6 +28,16 @@ KEY_FIELDS_BY_SHEET = {
     "Literature Evidence": ("evidence_id", "source", "title", "relevance_tags"),
     "Agent Suggestions": ("suggestion_id", "experiment_id", "recommendation_type", "status"),
     "Daily Reviews": ("review_id", "review_date", "selected_experiment_ids", "status"),
+    "Project Notebook Records": (
+        "record_id",
+        "experiment_id",
+        "record_type",
+        "stage",
+        "section",
+        "label",
+        "material_name",
+    ),
+    "Source Sync": ("source_key", "source_title", "source_sheet_name", "status"),
     "Process Knowledge": ("process_type", "material_role", "typical_examples"),
 }
 
@@ -100,7 +112,15 @@ def key_fields_for_row(sheet_name: str, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def record_id(sheet_name: str, row_index: int, key_fields: dict[str, Any]) -> str:
-    for field in ("reagent_id", "experiment_id", "evidence_id", "suggestion_id", "sample_id"):
+    for field in (
+        "record_id",
+        "source_key",
+        "reagent_id",
+        "experiment_id",
+        "evidence_id",
+        "suggestion_id",
+        "sample_id",
+    ):
         if key_fields.get(field):
             return f"{sheet_name}:{key_fields[field]}"
     return f"{sheet_name}:row-{row_index}"
@@ -119,6 +139,16 @@ def row_label(sheet_name: str, row: dict[str, Any], key_fields: dict[str, Any]) 
         return " ".join(str(key_fields.get(field, "")) for field in ("evidence_id", "title")).strip()
     if sheet_name == "Daily Reviews":
         return " ".join(str(key_fields.get(field, "")) for field in ("review_id", "review_date", "status")).strip()
+    if sheet_name == "Project Notebook Records":
+        return " ".join(
+            str(key_fields.get(field, ""))
+            for field in ("experiment_id", "stage", "record_type", "label")
+        ).strip()
+    if sheet_name == "Source Sync":
+        return " ".join(
+            str(key_fields.get(field, ""))
+            for field in ("source_title", "source_sheet_name", "status")
+        ).strip()
     return " ".join(str(value) for value in key_fields.values()).strip() or f"{sheet_name} row"
 
 

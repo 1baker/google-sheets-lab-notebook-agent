@@ -85,7 +85,7 @@ from lab_notebook_agent.recorded_daily_agent import (
     run_workbook_recorded_daily_agent,
 )
 from lab_notebook_agent.result_analysis import build_result_analysis
-from lab_notebook_agent.schema import SHEETS, workbook_contract
+from lab_notebook_agent.schema import RUN_CONSOLE_SHEET, SHEETS, workbook_contract
 from lab_notebook_agent.search import LocalSemanticIndex
 from lab_notebook_agent.sheets import (
     append_suggestion_to_workbook,
@@ -95,7 +95,7 @@ from lab_notebook_agent.sheets import (
     suggestion_to_values,
     suggest_from_workbook,
 )
-from lab_notebook_agent.templates import save_workbook
+from lab_notebook_agent.templates import apply_workbook_presentation, save_workbook
 
 
 class ScaffoldTests(unittest.TestCase):
@@ -103,11 +103,48 @@ class ScaffoldTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = save_workbook(Path(tmpdir) / "template.xlsx")
             workbook = load_workbook(output)
-            self.assertEqual([sheet.name for sheet in SHEETS], workbook.sheetnames)
+            self.assertEqual(
+                [RUN_CONSOLE_SHEET, *(sheet.name for sheet in SHEETS)],
+                workbook.sheetnames,
+            )
+            self.assertEqual("COCHRAN LAB NOTEBOOK", workbook[RUN_CONSOLE_SHEET]["A1"].value)
+            self.assertEqual("A4", workbook[RUN_CONSOLE_SHEET].freeze_panes)
+            self.assertFalse(workbook[RUN_CONSOLE_SHEET].sheet_view.showGridLines)
             for spec in SHEETS:
                 worksheet = workbook[spec.name]
+                if spec.name == "Plot Studio":
+                    self.assertEqual("PLOT STUDIO", worksheet["A1"].value)
+                    continue
                 headers = [cell.value for cell in worksheet[1]]
                 self.assertEqual(list(spec.headers), headers)
+
+    def test_run_console_preserves_selection_and_marks_technical_tabs_hidden(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = save_workbook(Path(tmpdir) / "template.xlsx")
+            workbook = load_workbook(output)
+            console = workbook[RUN_CONSOLE_SHEET]
+            console["B3"] = "EP-001"
+            apply_workbook_presentation(workbook)
+            self.assertEqual("EP-001", console["B3"].value)
+            self.assertTrue(str(console["B6"].value).startswith("=IF("))
+            self.assertEqual("yyyy-mm-dd", console["B9"].number_format)
+            self.assertIn("RUNNING", str(console["A30"].value))
+            self.assertIn("AGGREGATE", str(console["B30"].value))
+            self.assertIn("Assign operator", str(console["F30"].value))
+            self.assertEqual(
+                str(console["A30"].value).count("("),
+                str(console["A30"].value).count(")"),
+            )
+            self.assertEqual("COMPLETE", console["G29"].value)
+            self.assertEqual("RECORD", console["H29"].value)
+            self.assertEqual("0%", console["G30"].number_format)
+            self.assertIn("AGGREGATE", str(workbook["Plot Studio"]["A9"].value))
+            self.assertIn("AGGREGATE", str(workbook["Plot Studio"]["D9"].value))
+            self.assertEqual("QUEUE SUMMARY", console["I28"].value)
+            self.assertIn("COUNTIFS", str(console["J29"].value))
+            self.assertEqual("hidden", workbook["Plot Data"].sheet_state)
+            self.assertEqual("hidden", workbook["Plot Dashboard"].sheet_state)
+            self.assertLessEqual(workbook["Agent Suggestions"].column_dimensions["M"].width, 40)
 
     def test_workbook_template_validates_controlled_vocab_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2651,7 +2688,7 @@ class ScaffoldTests(unittest.TestCase):
             workbook = load_workbook(output_path)
             worksheet = workbook["Results"]
             self.assertEqual("temperature", worksheet["C3"].value)
-            self.assertEqual("70", worksheet["E3"].value)
+            self.assertEqual(70, worksheet["E3"].value)
             self.assertEqual("agitation speed", worksheet["C4"].value)
 
     def test_daily_log_results_snapshot_emits_google_batch_requests(self) -> None:
@@ -2689,12 +2726,16 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(2, run["summary"]["normalized_result_rows_to_append"])
             self.assertEqual("lab-notebook-agent-daily-log-results.v1", run["daily_log_results_report"]["schema"])
             self.assertEqual(1, run["summary"]["experiment_review_count"])
-            self.assertEqual(2, run["summary"]["preflight_fail_count"])
+            self.assertGreaterEqual(run["summary"]["preflight_fail_count"], 10)
             self.assertEqual(1, run["summary"]["result_limiting_metric_count"])
             self.assertEqual(["EP-001"], run["summary"]["experiments_with_result_limits"])
             review = run["experiment_reviews"][0]
             self.assertEqual("EP-001", review["experiment_id"])
-            self.assertEqual("lab-notebook-agent-experiment-preflight.v1", review["preflight"]["schema"])
+            self.assertEqual("lab-notebook-agent-experiment-preflight.v2", review["preflight"]["schema"])
+            failed_checks = {
+                row["name"] for row in review["preflight"]["checks"] if row["status"] == "fail"
+            }
+            self.assertTrue({"governed_template", "controlled_protocol", "notebook_sections"}.issubset(failed_checks))
             self.assertEqual("lab-notebook-agent-process-material-search.v1", review["material_search"]["schema"])
             roles = {role["role_group"]: role for role in review["material_search"]["roles"]}
             self.assertEqual("M-SKA", roles["monomer"]["candidate_reagents"][0]["reagent_id"])
@@ -2711,7 +2752,7 @@ class ScaffoldTests(unittest.TestCase):
                 AgentRunConfig(review_date="2026-06-09"),
             )
 
-            self.assertEqual(3, run["summary"]["normalized_result_rows_to_append"])
+            self.assertEqual(2, run["summary"]["normalized_result_rows_to_append"])
             suggestion = run["agent_report"]["runs"][0]["append_agent_suggestions"][0]
             self.assertIn("particle_size_high", suggestion["result_analysis"]["signals"])
             self.assertTrue(suggestion["proposed_experiment_plan"]["result_support"]["limiting_metrics"])
@@ -3173,7 +3214,9 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(["Notes"], audit["unknown_sheets"])
         self.assertEqual(1, audit["summary"]["existing_contract_sheet_count"])
         self.assertEqual(len(requests), audit["summary"]["request_count"])
-        self.assertEqual(900000000, audit["generated_sheet_ids"]["Master Reagents"])
+        self.assertEqual(900000000, audit["generated_sheet_ids"][RUN_CONSOLE_SHEET])
+        self.assertEqual(900000001, audit["generated_sheet_ids"]["Reaction Master"])
+        self.assertEqual(900000002, audit["generated_sheet_ids"]["Master Reagents"])
 
     def test_validate_snapshot_detects_header_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3930,6 +3973,45 @@ def set_agent_config(tables: dict[str, list[dict[str, object]]], key: str, value
 
 
 def complete_template_materials(tables: dict[str, list[dict[str, object]]]) -> None:
+    experiment = tables["Experiments"][0]
+    experiment.update(
+        {
+            "operator": "Scientist",
+            "protocol_id": "PROTO-1",
+            "protocol_version": "1.0",
+            "equipment_id": "REACTOR-1",
+            "template_id": "TPL-EMULSION",
+            "template_version": "1.0",
+            "summary": "Run complete; results reviewed.",
+            "completed_at": "2026-06-09T17:00:00",
+            "reviewer": "Reviewer",
+            "reviewed_at": "2026-06-10T09:00:00",
+        }
+    )
+    tables["Protocols"] = [
+        {
+            "protocol_id": "PROTO-1",
+            "name": "Controlled reaction protocol",
+            "version": "1.0",
+            "status": "active",
+            "source_url": "https://example.test/protocol/1.0",
+        }
+    ]
+    tables["Experiment Templates"][0].update(
+        {
+            "owner": "Lab steward",
+            "effective_at": "2026-06-01T09:00:00",
+            "required_capture_sections": "Batch Builder,Notebook Sections,Bench Log,Measurements,Reaction Outcomes",
+            "source_url": "https://example.test/templates/emulsion/1.0",
+        }
+    )
+    tables["Equipment"] = [
+        {
+            "equipment_id": "REACTOR-1",
+            "name": "Reactor 1",
+            "calibration_status": "current",
+        }
+    ]
     for row in tables["Master Reagents"]:
         if row["reagent_id"] == "M-SKA":
             row["molecular_weight_g_mol"] = "156.18"
@@ -3943,6 +4025,58 @@ def complete_template_materials(tables: dict[str, list[dict[str, object]]]) -> N
             row["mass_g"] = "0.2"
         if row["reagent_id"] == "S-SDS":
             row["mass_g"] = "0.1"
+    for row in tables["Batch Builder"]:
+        row.update(
+            {
+                "formula_status": "READY",
+                "effective_actual_mass_g": row.get("planned_mass_g") or "1",
+                "lot": "LOT-1",
+                "recorded_by": "Scientist",
+                "recorded_at": "2026-06-09T10:00:00",
+                "charge_status": "charged",
+            }
+        )
+    for row in tables["Notebook Sections"]:
+        row.update(
+            {
+                "status": "complete",
+                "content": f"Completed {row.get('section_type', 'section')} record.",
+                "authored_by": "Scientist",
+                "authored_at": "2026-06-09T10:00:00",
+                "completed_by": "Scientist",
+                "completed_at": "2026-06-09T17:00:00",
+            }
+        )
+    tables["Raw Data Files"] = [
+        {
+            "raw_file_id": "RAW-1",
+            "experiment_id": "EP-001",
+            "sample_id": "EP-001-L1",
+            "measurement_type": "DLS particle size",
+            "instrument_id": "REACTOR-1",
+            "collected_at": "2026-06-09T16:00:00",
+            "file_name": "ep001-dls.csv",
+            "file_url": "https://example.test/raw/ep001-dls.csv",
+        }
+    ]
+    for row in tables["Measurements"]:
+        row["Raw file ID"] = "RAW-1"
+    tables["Reaction Outcomes"] = [
+        {
+            "experiment_id": "EP-001",
+            "product_sample_id": "EP-001-PRODUCT",
+            "product_name": "Product",
+            "theoretical_product_mass_g": 10,
+            "recovered_product_mass_g": 9,
+            "purity_percent": 98,
+            "appearance": "Uniform",
+            "outcome_status": "complete",
+            "mass_balance_status": "CLOSED",
+            "completed_by": "Scientist",
+            "completed_at": "2026-06-09T17:00:00",
+            "conclusion": "Run met its objective.",
+        }
+    ]
 
 
 def low_confidence_agent_tables(confidence_floor: str) -> dict[str, list[dict[str, object]]]:
@@ -3993,7 +4127,15 @@ class FakeSheetsApiClient:
         self.batch_updates: list[list[dict[str, object]]] = []
 
     def get_metadata(self, spreadsheet_id: str) -> dict[str, object]:
-        sheets = []
+        sheets = [
+            {
+                "properties": {
+                    "title": RUN_CONSOLE_SHEET,
+                    "sheetId": 99,
+                    "gridProperties": {"rowCount": 100, "columnCount": 12},
+                }
+            }
+        ]
         for sheet_name, payload in self.snapshot["sheets"].items():
             sheets.append(
                 {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .batch_builder import formulation_rows_from_tables
 from .material_search import (
     master_reagent_records,
     material_role_query,
@@ -86,7 +87,7 @@ def build_material_scaffold_report(
     knowledge_index = LocalSemanticIndex(knowledge_records) if knowledge_records else None
     existing_formulation = [
         row
-        for row in tables.get("Formulations", [])
+        for row in formulation_rows_from_tables(tables)
         if isinstance(row, dict) and str(row.get("experiment_id", "")).strip() == experiment_id
     ]
     existing_reagent_ids = {

@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+WORKBOOK_CONTRACT_VERSION = "0.12.0"
+
+
 @dataclass(frozen=True)
 class Column:
     name: str
@@ -26,6 +29,14 @@ PROCESS_TYPES = (
     "solution polymerization",
     "bulk polymerization",
     "suspension polymerization",
+    "RAFT polymerization",
+    "step-growth polymerization",
+    "ring-opening polymerization",
+    "polyurethane network curing",
+    "photopolymerization",
+    "polymer functionalization",
+    "monomer synthesis",
+    "chain-transfer agent synthesis",
     "latex characterization",
     "compounding",
     "hydrolysis study",
@@ -41,6 +52,15 @@ REAGENT_CATEGORIES = (
     "crosslinker",
     "inhibitor",
     "additive",
+    "catalyst",
+    "acid",
+    "base",
+    "gas",
+    "polyol",
+    "isocyanate",
+    "chain_extender",
+    "functional_reagent",
+    "bio_based_substrate",
     "matrix_polymer",
     "unknown",
 )
@@ -57,6 +77,88 @@ FORMULATION_ROLES = (
     "solvent",
     "neutralizer",
     "additive",
+    "monomer",
+    "substrate",
+    "catalyst",
+    "acid",
+    "base",
+    "gas",
+    "polyol",
+    "isocyanate",
+    "chain_extender",
+    "functional_reagent",
+)
+
+BATCH_STAGES = (
+    "setup",
+    "initial_charge",
+    "addition",
+    "reaction",
+    "hold",
+    "quench",
+    "seed",
+    "core",
+    "shell",
+    "functional_shell",
+    "workup",
+    "purification",
+    "isolation",
+)
+
+BATCH_CHARGE_TYPES = (
+    "initial_charge",
+    "monomer_charge",
+    "solvent_charge",
+    "catalyst_addition",
+    "dropwise_addition",
+    "gas_feed",
+    "reflux",
+    "distillation",
+    "pre_reactor",
+    "monomer_pre_emulsion",
+    "aqueous_pre_emulsion",
+    "initiator_shot",
+    "initiator_feed",
+    "redox_pair",
+    "chase",
+    "adjustment",
+    "quench",
+    "wash",
+    "filtration",
+    "isolation",
+    "other",
+)
+
+BATCH_CHARGE_STATUS = (
+    "planned",
+    "prepared",
+    "charged",
+    "skipped",
+)
+
+BATCH_CALCULATION_MODES = (
+    "direct_mass",
+    "batch_wt_percent",
+    "pphm",
+    "target_active_mass",
+    "equivalents",
+    "functional_equivalents",
+)
+
+BATCH_WEIGHING_METHODS = (
+    "direct",
+    "by_difference",
+)
+
+FUNCTIONAL_GROUPS = (
+    "active_H",
+    "NCO",
+    "hydroxyl",
+    "amine",
+    "acid",
+    "epoxide",
+    "alkene",
+    "other",
 )
 
 EXPERIMENT_STATUS = (
@@ -69,6 +171,9 @@ EXPERIMENT_STATUS = (
 
 PROCESS_STAGES = (
     "setup",
+    "initial_charge",
+    "addition",
+    "reaction",
     "seed",
     "feed",
     "hold",
@@ -77,6 +182,9 @@ PROCESS_STAGES = (
     "sampling",
     "test",
     "cleanup",
+    "quench",
+    "purification",
+    "isolation",
 )
 
 RESULT_QUALITY_FLAGS = (
@@ -103,17 +211,310 @@ DAILY_REVIEW_STATUS = (
     "no_action",
 )
 
+PROJECT_RECORD_TYPES = (
+    "component",
+    "process_parameter",
+    "feed_step",
+    "observation",
+    "result",
+)
+
+SOURCE_SYNC_STATUS = (
+    "synced",
+    "unchanged",
+    "needs_review",
+)
+
+PLOT_ROW_TYPES = (
+    "header",
+    "point",
+)
+
+PLOT_TYPES = (
+    "LINE",
+    "COLUMN",
+)
+
+PLOT_STATUS = (
+    "ready",
+    "insufficient_data",
+)
+
+PLOT_X_AXIS_MODES = (
+    "numeric",
+    "category",
+)
+
+RUN_STEP_STATUS = (
+    "planned",
+    "ready",
+    "in_progress",
+    "complete",
+    "skipped",
+    "blocked",
+)
+
+SAMPLE_STATUS = (
+    "collected",
+    "stored",
+    "consumed",
+    "disposed",
+    "missing",
+)
+
+CALIBRATION_STATUS = (
+    "current",
+    "due_soon",
+    "expired",
+    "not_required",
+    "unknown",
+)
+
+PROTOCOL_STATUS = (
+    "draft",
+    "active",
+    "retired",
+)
+
+SPECIFICATION_STATUS = (
+    "draft",
+    "active",
+    "retired",
+)
+
+QC_STATUS = (
+    "pass",
+    "warn",
+    "fail",
+    "not_evaluated",
+)
+
+DEVIATION_STATUS = (
+    "open",
+    "under_review",
+    "closed",
+)
+
+RAW_FILE_PARSER_STATUS = (
+    "unprocessed",
+    "parsed",
+    "needs_review",
+    "failed",
+)
+
+AUDIT_ACTIONS = (
+    "create",
+    "update",
+    "correct",
+    "delete",
+    "import",
+    "migrate",
+)
+
+INVENTORY_STATUS = (
+    "available",
+    "low",
+    "expired",
+    "quarantined",
+    "unknown",
+)
+
+TEMPLATE_STATES = (
+    "draft",
+    "effective",
+    "superseded",
+    "withdrawn",
+)
+
+INVENTORY_TRANSACTION_TYPES = (
+    "consume",
+    "add",
+    "adjust",
+    "transfer",
+    "dispose",
+)
+
+EQUIPMENT_EVENT_TYPES = (
+    "usage",
+    "calibration",
+    "maintenance",
+    "other",
+)
+
+BOOKING_STATUS = (
+    "planned",
+    "confirmed",
+    "complete",
+    "cancelled",
+)
+
+SIGNATURE_TYPES = (
+    "author_signoff",
+    "reviewer_approval",
+)
+
+SIGNATURE_STATUS = (
+    "draft",
+    "signed",
+    "revoked",
+    "superseded",
+)
+
+NOTEBOOK_SECTION_TYPES = (
+    "objective",
+    "safety",
+    "setup",
+    "procedure",
+    "observations",
+    "workup",
+    "results",
+    "conclusion",
+)
+
+NOTEBOOK_SECTION_STATUS = (
+    "planned",
+    "in_progress",
+    "complete",
+    "not_applicable",
+)
+
+REACTION_OUTCOME_STATUS = (
+    "draft",
+    "complete",
+    "needs_review",
+)
+
 CONTROLLED_VOCAB_VALIDATIONS: dict[str, dict[str, tuple[str, ...]]] = {
-    "Master Reagents": {"category": REAGENT_CATEGORIES},
-    "Experiments": {"process_type": PROCESS_TYPES, "status": EXPERIMENT_STATUS},
+    "Master Reagents": {
+        "category": REAGENT_CATEGORIES,
+        "inventory_status": INVENTORY_STATUS,
+        "functional_group": FUNCTIONAL_GROUPS,
+    },
+    "Experiments": {
+        "process_type": PROCESS_TYPES,
+        "status": EXPERIMENT_STATUS,
+        "stoichiometric_numerator_group": FUNCTIONAL_GROUPS,
+        "stoichiometric_denominator_group": FUNCTIONAL_GROUPS,
+    },
+    "Batch Builder": {
+        "stage": BATCH_STAGES,
+        "charge_type": BATCH_CHARGE_TYPES,
+        "target_role": FORMULATION_ROLES,
+        "charge_status": BATCH_CHARGE_STATUS,
+        "calculation_mode": BATCH_CALCULATION_MODES,
+        "weighing_method": BATCH_WEIGHING_METHODS,
+    },
+    "Bench Log": {"Stage": PROCESS_STAGES},
+    "Measurements": {"Quality": RESULT_QUALITY_FLAGS},
     "Daily Log": {"process_stage": PROCESS_STAGES},
     "Formulations": {"target_role": FORMULATION_ROLES},
-    "Results": {"quality_flag": RESULT_QUALITY_FLAGS},
+    "Results": {
+        "quality_flag": RESULT_QUALITY_FLAGS,
+        "qc_status": QC_STATUS,
+    },
     "Agent Suggestions": {"status": SUGGESTION_STATUS},
     "Daily Reviews": {"status": DAILY_REVIEW_STATUS},
+    "Project Notebook Records": {
+        "record_type": PROJECT_RECORD_TYPES,
+        "active": ("true", "false"),
+    },
+    "Source Sync": {"status": SOURCE_SYNC_STATUS},
+    "Plot Data": {
+        "row_type": PLOT_ROW_TYPES,
+        "active": ("true", "false"),
+    },
+    "Plot Definitions": {
+        "chart_type": PLOT_TYPES,
+        "status": PLOT_STATUS,
+        "x_axis_mode": PLOT_X_AXIS_MODES,
+    },
+    "Run Capture Plan": {
+        "required": ("true", "false"),
+        "status": RUN_STEP_STATUS,
+    },
+    "Samples": {"status": SAMPLE_STATUS},
+    "Equipment": {"calibration_status": CALIBRATION_STATUS},
+    "Protocols": {"status": PROTOCOL_STATUS},
+    "Specifications": {"status": SPECIFICATION_STATUS},
+    "Deviations": {"status": DEVIATION_STATUS},
+    "Raw Data Files": {"parser_status": RAW_FILE_PARSER_STATUS},
+    "Experiment Templates": {
+        "process_type": PROCESS_TYPES,
+        "state": TEMPLATE_STATES,
+    },
+    "Inventory Transactions": {"transaction_type": INVENTORY_TRANSACTION_TYPES},
+    "Equipment Bookings": {
+        "event_type": EQUIPMENT_EVENT_TYPES,
+        "status": BOOKING_STATUS,
+    },
+    "Record Signatures": {
+        "signature_type": SIGNATURE_TYPES,
+        "status": SIGNATURE_STATUS,
+    },
+    "Notebook Sections": {
+        "section_type": NOTEBOOK_SECTION_TYPES,
+        "required": ("true", "false"),
+        "status": NOTEBOOK_SECTION_STATUS,
+    },
+    "Reaction Outcomes": {"outcome_status": REACTION_OUTCOME_STATUS},
+    "Audit Log": {"action": AUDIT_ACTIONS},
 }
 
 SHEETS: tuple[SheetSpec, ...] = (
+    SheetSpec(
+        name="Reaction Master",
+        columns=(
+            Column("Run ID", "Auto-linked experiment identifier."),
+            Column("Date", "Experiment date from Experiments."),
+            Column("Project", "Project from Experiments."),
+            Column("Process", "Polymerization or reaction process."),
+            Column("Objective", "Scientific objective for the run."),
+            Column("Status", "Current experiment status."),
+            Column("Operator", "Scientist running the reaction."),
+            Column("Protocol", "Protocol and version used."),
+            Column("Equipment", "Primary reactor or equipment."),
+            Column("Planned mass (g)", "Sum of planned Batch Builder charges."),
+            Column("Actual mass (g)", "Sum of actual Batch Builder charges."),
+            Column("Mass variance (g)", "Actual minus planned mass across charges."),
+            Column("Charges recorded", "Number of charges marked charged."),
+            Column("Bench entries", "Number of linked Bench Log entries."),
+            Column("Measurements", "Number of linked Measurements rows."),
+            Column("Last activity", "Most recent bench or measurement timestamp."),
+            Column("Run summary", "Completion summary from Experiments."),
+            Column("Next action", "Formula-derived next notebook action."),
+            Column("Reviewer", "Scientist who reviewed the record."),
+            Column("Reviewed at", "Record review timestamp."),
+            Column("Target batch mass (g)", "Target total batch mass from Experiments."),
+            Column("Planned vs target (g)", "Planned mass minus target batch mass."),
+            Column("Actual vs target (g)", "Actual mass minus target batch mass."),
+            Column("Mass completion (%)", "Actual mass divided by planned mass."),
+            Column("Out-of-tolerance charges", "Charge rows whose actual mass exceeds tolerance."),
+            Column("Calculation issues", "Charge rows that are not calculation-ready."),
+            Column("Mass plan status", "READY or the first run-level mass-planning problem."),
+            Column("Numerator group", "Functional group in the numerator of the target ratio."),
+            Column("Denominator group", "Functional group in the denominator of the target ratio."),
+            Column("Target equivalent ratio", "Target numerator-to-denominator functional-equivalent ratio."),
+            Column("Planned numerator eq", "Planned functional equivalents in the numerator group."),
+            Column("Planned denominator eq", "Planned functional equivalents in the denominator group."),
+            Column("Planned equivalent ratio", "Planned numerator equivalents divided by denominator equivalents."),
+            Column("Actual numerator eq", "Actual functional equivalents in the numerator group."),
+            Column("Actual denominator eq", "Actual functional equivalents in the denominator group."),
+            Column("Actual equivalent ratio", "Actual numerator equivalents divided by denominator equivalents."),
+            Column("Stoichiometry status", "Readiness of the configured functional-equivalent ratio."),
+            Column("Template ID", "Governed experiment template selected in Experiments."),
+            Column("Template version", "Selected governed template version."),
+            Column("Material transactions", "Count of linked inventory consumption or movement events."),
+            Column("Signature status", "UNSIGNED, SIGNED_UNWITNESSED, or SIGNED_WITNESSED."),
+            Column("Signed by", "Most recent signer for this record."),
+            Column("Signed at", "Most recent signature timestamp."),
+            Column("Witnessed by", "Most recent independent witness."),
+            Column("Witnessed at", "Most recent witness timestamp."),
+            Column("Governance status", "Template and signoff readiness; not a regulatory compliance certification."),
+            Column("Section readiness", "READY or the first required notebook-section completion problem."),
+            Column("Raw data readiness", "READY or a missing measurement/raw-file provenance problem."),
+            Column("Outcome readiness", "READY or a reaction outcome/material-closure problem."),
+        ),
+    ),
     SheetSpec(
         name="Master Reagents",
         columns=(
@@ -132,6 +533,13 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("storage_location", "Freezer, cabinet, hood, or shelf."),
             Column("hazards", "Short safety notes."),
             Column("notes", "Additional user notes."),
+            Column("cas_number", "CAS Registry Number when verified."),
+            Column("expiration_date", "Expiration or retest date."),
+            Column("inventory_status", "available, low, expired, quarantined, or unknown."),
+            Column("sds_url", "Link to the current safety data sheet."),
+            Column("functional_group", "Functional-equivalent group such as active_H, NCO, acid, or epoxide."),
+            Column("functional_equivalent_weight_g_eq", "Verified grams of active material per functional equivalent."),
+            Column("nominal_functionality", "Nominal reactive functional groups per molecule when known."),
         ),
         example_rows=(
             (
@@ -201,6 +609,28 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("status", "Experiment state.", True),
             Column("planned_next_step", "Human-planned next action."),
             Column("summary", "Short run summary after completion."),
+            Column("source_notebook_id", "Source spreadsheet or workbook ID for imported experiments."),
+            Column("source_sheet_name", "Source tab name for imported experiments."),
+            Column("source_url", "Link to the read-only source notebook."),
+            Column("source_modified_at", "Source modification timestamp when available."),
+            Column("source_fingerprint", "SHA-256 fingerprint of the imported source tab."),
+            Column("protocol_id", "Protocol and version used for this run."),
+            Column("equipment_id", "Primary reactor or equipment ID."),
+            Column("started_at", "Actual run start timestamp."),
+            Column("completed_at", "Actual run completion timestamp."),
+            Column("reviewer", "Person who reviewed the completed record."),
+            Column("reviewed_at", "Record review timestamp."),
+            Column("target_batch_mass_g", "Target total as-supplied batch mass in grams."),
+            Column("default_mass_tolerance_percent", "Default acceptable absolute charge error percent."),
+            Column("stoichiometric_numerator_group", "Functional group used as the numerator of the reaction ratio."),
+            Column("stoichiometric_denominator_group", "Functional group used as the denominator of the reaction ratio."),
+            Column("target_equivalent_ratio", "Target numerator equivalents divided by denominator equivalents."),
+            Column("equivalent_ratio_tolerance_percent", "Allowed absolute percent deviation from the target equivalent ratio."),
+            Column("template_id", "Governed Experiment Templates identifier used for the run."),
+            Column("template_version", "Effective template version instantiated for the run."),
+            Column("review_process", "Named review route such as PI review or independent witness."),
+            Column("record_fingerprint", "Optional SHA-256 or other stable record fingerprint captured at signoff."),
+            Column("protocol_version", "Exact controlled protocol version used for this run."),
         ),
         example_rows=(
             (
@@ -215,8 +645,132 @@ SHEETS: tuple[SheetSpec, ...] = (
                 "planned",
                 "",
                 "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
             ),
         ),
+    ),
+    SheetSpec(
+        name="Batch Builder",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("charge_id", "Stable charge-row ID such as EP-001-CHG-001.", True),
+            Column("stage", "Seed, core, shell, functional shell, or workup stage.", True),
+            Column("charge_type", "Where or how this material is charged.", True),
+            Column("target_role", "Scientific role of the material in this stage.", True),
+            Column("feed_order", "Planned order of addition within the experiment."),
+            Column("reagent_id", "Reagent ID from Master Reagents.", True),
+            Column("material_name", "Calculated material name from Master Reagents."),
+            Column("parts_per_hundred_monomer", "Input parts per hundred monomer when scaling by PHR."),
+            Column("stage_monomer_basis_g", "Input monomer basis for this stage in grams."),
+            Column("direct_mass_g", "Input planned mass directly when PHR scaling is not used."),
+            Column("planned_mass_g", "Calculated direct mass or PHR times stage basis divided by 100."),
+            Column("stock_active_fraction", "Input active fraction of the supplied stock from 0 to 1."),
+            Column("active_mass_g", "Calculated active-material mass."),
+            Column("density_override_g_mL", "Optional density override for this charge."),
+            Column("density_g_mL", "Calculated override or Master Reagents density."),
+            Column("planned_volume_mL", "Calculated planned mass divided by density."),
+            Column("actual_mass_g", "Input actual mass charged."),
+            Column("mass_variance_g", "Calculated actual mass minus planned mass."),
+            Column("actual_volume_mL", "Calculated actual mass divided by density."),
+            Column("feed_start_min", "Input elapsed feed start time in minutes."),
+            Column("feed_duration_min", "Input feed duration in minutes."),
+            Column("feed_rate_mL_min", "Calculated planned volume divided by feed duration."),
+            Column("target_temperature_C", "Input target reactor temperature for the charge."),
+            Column("lot", "Input reagent lot used."),
+            Column("recorded_by", "Scientist who prepared or charged the material."),
+            Column("recorded_at", "Timestamp for the charge record."),
+            Column("charge_status", "Planned, prepared, charged, or skipped.", True),
+            Column("notes", "Charge preparation, addition, or deviation notes."),
+            Column("molecular_weight_g_mol", "Calculated molecular weight from Master Reagents."),
+            Column("planned_moles_mmol", "Calculated planned active amount in mmol."),
+            Column("equivalent_basis_mmol", "Input reference amount used for equivalents."),
+            Column("equivalents", "Calculated planned mmol divided by the equivalent basis."),
+            Column("actual_moles_mmol", "Calculated actual active amount in mmol."),
+            Column("calculation_mode", "Direct mass, batch wt%, pphm, target active mass, molar equivalents, or functional equivalents.", True),
+            Column("recipe_wt_percent", "Input as-supplied recipe weight percent of target batch mass."),
+            Column("experiment_target_mass_g", "Calculated target batch mass from Experiments."),
+            Column("target_active_mass_g", "Input active-material mass target."),
+            Column("target_equivalents", "Input target equivalents relative to equivalent basis."),
+            Column("mass_tolerance_percent", "Optional row-specific absolute mass error tolerance percent."),
+            Column("experiment_default_tolerance_percent", "Calculated default tolerance from Experiments."),
+            Column("mass_variance_percent", "Calculated actual-minus-planned mass percent."),
+            Column("within_tolerance", "PASS or FAIL after actual mass is recorded."),
+            Column("formula_status", "Calculation readiness or first actionable missing input."),
+            Column("functional_group", "Calculated functional group from Master Reagents."),
+            Column("functional_equivalent_weight_g_eq", "Calculated grams per functional equivalent from Master Reagents."),
+            Column("target_functional_equivalents", "Input functional equivalents for functional-equivalents mode."),
+            Column("planned_functional_equivalents", "Calculated active mass divided by functional equivalent weight."),
+            Column("actual_functional_equivalents", "Calculated effective actual active mass divided by functional equivalent weight."),
+            Column("weighing_method", "Direct scale entry or source-container mass by difference.", True),
+            Column("source_container_before_g", "Source container mass before charging."),
+            Column("source_container_after_g", "Source container mass after charging."),
+            Column("actual_mass_from_difference_g", "Calculated before-minus-after delivered mass."),
+            Column("effective_actual_mass_g", "Calculated actual mass selected from direct or by-difference weighing."),
+            Column("carrier_reagent_id", "Optional reagent ID for the inactive carrier in a stock or masterbatch."),
+            Column("planned_carrier_mass_g", "Calculated planned inactive carrier contribution."),
+            Column("actual_carrier_mass_g", "Calculated actual inactive carrier contribution."),
+            Column("weighing_status", "Actual-mass entry readiness or first weighing problem."),
+        ),
+        example_rows=(
+            (
+                "EP-001", "EP-001-CHG-001", "core", "monomer_pre_emulsion",
+                "core_monomer", 1, "M-SKA", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", 0, 180, "", 70, "", "",
+                "", "planned", "Enter direct mass, or enter PHR plus stage monomer basis.",
+            ),
+            (
+                "EP-001", "EP-001-CHG-002", "core", "initiator_feed",
+                "initiator", 2, "I-APS", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", 0, 210, "", 70, "", "",
+                "", "planned", "Record the stock fraction when using a solution.",
+            ),
+            (
+                "EP-001", "EP-001-CHG-003", "core", "aqueous_pre_emulsion",
+                "surfactant", 3, "S-SDS", "", "", "", "", "", 1,
+                "", "", "", "", "", "", "", "", "", "", 70, "", "",
+                "", "planned", "Enter the planned quantity and actual charge at the bench.",
+            ),
+        ),
+    ),
+    SheetSpec(
+        name="Bench Log",
+        columns=(
+            Column("Run ID", "Choose the experiment or run being recorded.", True),
+            Column("Date & time", "When the observation was made.", True),
+            Column("Stage", "Current process stage."),
+            Column("Temperature (°C)", "Observed reactor or sample temperature."),
+            Column("RPM", "Observed agitation speed."),
+            Column("pH", "Observed pH."),
+            Column("Solids (%)", "Observed or estimated solids."),
+            Column("Particle size (nm)", "Particle size when measured."),
+            Column("Conversion (%)", "Conversion when measured."),
+            Column("Viscosity (cP)", "Viscosity when measured."),
+            Column("Observation / action", "What happened, what was seen, or what was done.", True),
+            Column("Issue tags", "Short comma-separated issue tags."),
+            Column("Attachment link", "Link to a photo, instrument file, or folder."),
+            Column("Pressure (psi)", "Observed reactor or line pressure."),
+            Column("Jacket / oil temperature (°C)", "Observed jacket, bath, or oil temperature."),
+            Column("Torque / power (W)", "Observed mixer torque or power when available."),
+            Column("Cumulative addition (g)", "Cumulative feed or addition mass at this timestamp."),
+            Column("Recovered mass (g)", "Recovered product or sample mass."),
+        ),
+        example_rows=((
+            "EP-001", "2026-06-09T14:35:00", "feed", 70, 250, "", "", 420,
+            "", "", "Latex looked bluish but small coagulum appeared on stir shaft.",
+            "coagulum,particle_size_high", "",
+        ),),
     ),
     SheetSpec(
         name="Daily Log",
@@ -278,12 +832,42 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("feed_start_min", "Feed start time in minutes."),
             Column("feed_duration_min", "Feed duration in minutes."),
             Column("notes", "Formulation notes."),
+            Column("actual_mass_g", "Actual charged mass in grams."),
+            Column("mass_variance_g", "Actual mass minus planned mass in grams."),
+            Column("actual_volume_mL", "Actual charged volume in mL."),
+            Column("lot", "Reagent lot used for this experiment."),
+            Column("recorded_by", "Person who recorded the charge."),
+            Column("recorded_at", "Charge recording timestamp."),
         ),
         example_rows=(
             ("EP-001", "M-SKA", "monomer feed", "core_monomer", "", "", "", "", "", "", "1", "0", "180", ""),
             ("EP-001", "I-APS", "initiator feed", "initiator", "", "", "", "", "", "", "2", "0", "210", ""),
             ("EP-001", "S-SDS", "aqueous", "surfactant", "", "", "", "", "", "", "0", "", "", ""),
         ),
+    ),
+    SheetSpec(
+        name="Measurements",
+        columns=(
+            Column("Run ID", "Choose the experiment or run.", True),
+            Column("Sample ID", "Sample or aliquot identifier.", True),
+            Column("Measurement", "What was measured.", True),
+            Column("Method", "Instrument, method, or calculation."),
+            Column("Numeric value", "Machine-readable numeric result."),
+            Column("Units", "Units for the numeric value."),
+            Column("Condition", "Relevant test or sample condition."),
+            Column("Replicate", "Replicate number or label when applicable."),
+            Column("Uncertainty", "Measurement uncertainty when available."),
+            Column("Quality", "Observed, okay, suspect, repeat, or failed."),
+            Column("Raw file ID", "Linked raw-data record identifier."),
+            Column("Measured at", "Measurement timestamp."),
+            Column("Analyst", "Person who performed the measurement."),
+            Column("Interpretation / notes", "Short result interpretation or notes."),
+        ),
+        example_rows=((
+            "EP-001", "EP-001-L1", "DLS particle size", "intensity average",
+            420, "nm", "post-feed", "1", "", "suspect", "", "", "",
+            "Above target range.",
+        ),),
     ),
     SheetSpec(
         name="Results",
@@ -298,6 +882,18 @@ SHEETS: tuple[SheetSpec, ...] = (
             Column("replicate", "Replicate number."),
             Column("quality_flag", "ok, suspect, repeat, failed."),
             Column("interpretation", "Human interpretation."),
+            Column("numeric_value", "Machine-readable numeric result when value is numeric."),
+            Column("uncertainty", "Measurement uncertainty."),
+            Column("uncertainty_units", "Units for uncertainty."),
+            Column("detection_limit", "Method detection or reporting limit."),
+            Column("detection_limit_units", "Units for detection_limit."),
+            Column("specification_id", "Specification used to assess this result."),
+            Column("qc_status", "pass, warn, fail, or not_evaluated."),
+            Column("raw_file_id", "Linked Raw Data Files record."),
+            Column("measured_at", "Measurement timestamp."),
+            Column("analyst", "Person who performed the measurement."),
+            Column("reviewer", "Person who reviewed the result."),
+            Column("reviewed_at", "Result review timestamp."),
         ),
         example_rows=(
             ("EP-001", "EP-001-L1", "DLS particle size", "intensity average", "420", "nm", "post-feed", "1", "suspect", "Above target range."),
@@ -359,6 +955,153 @@ SHEETS: tuple[SheetSpec, ...] = (
         ),
     ),
     SheetSpec(
+        name="Project Notebook Records",
+        columns=(
+            Column("record_id", "Stable ID used to update an imported source row without duplication.", True),
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("source_key", "Stable source spreadsheet and tab key.", True),
+            Column("record_type", "component, process_parameter, feed_step, observation, or result.", True),
+            Column("stage", "Seed, core, shell, functional shell, workup, or other source stage."),
+            Column("section", "Source subsection such as pre-reactor, pre-emulsion, or initiator feed."),
+            Column("label", "Source label or material name."),
+            Column("material_name", "Material name for component records."),
+            Column("reagent_id", "Optional mapped Master Reagents ID."),
+            Column("target_role", "Normalized material role such as surfactant or initiator."),
+            Column("planned_value", "Calculated, goal, or target value from the source."),
+            Column("actual_value", "Measured or actual value from the source."),
+            Column("units", "Units for planned_value and actual_value."),
+            Column("parts_per_hundred_monomer", "Source pphm value when provided."),
+            Column("mass_g", "Target or calculated component mass in grams."),
+            Column("actual_mass_g", "Actual component mass in grams."),
+            Column("mass_variance_g", "Actual-minus-target or source mass-left value in grams."),
+            Column("volume_mL", "Target or calculated volume in mL."),
+            Column("density_g_mL", "Material density in g/mL."),
+            Column("concentration", "Concentration value."),
+            Column("concentration_units", "Concentration units."),
+            Column("elapsed_start_min", "Feed or step start time in minutes."),
+            Column("elapsed_end_min", "Feed or step end time in minutes."),
+            Column("feed_rate_mL_min", "Feed rate in mL/min."),
+            Column("cumulative_percent", "Cumulative feed percentage."),
+            Column("radical_flux_mol_min_L", "Calculated radical flux in mol/min/L."),
+            Column("particle_size_nm", "Measured or estimated particle size in nm."),
+            Column("temperature_C", "Temperature in degrees Celsius."),
+            Column("rpm", "Agitation speed."),
+            Column("oil_temperature_C", "Oil-bath or controller temperature in degrees Celsius."),
+            Column("torque", "Agitator torque or power value as recorded by the source."),
+            Column("source_timestamp", "Clock time or timestamp copied from the source log."),
+            Column("lot_number", "Input material lot number when the source provides one."),
+            Column("product_lot", "Output product lot or batch identifier."),
+            Column("notes", "Observation, instruction, or parser note."),
+            Column("details_json", "Lossless JSON for additional source fields."),
+            Column("source_range", "A1 range or source row reference."),
+            Column("source_fingerprint", "Fingerprint of the complete source tab at sync time."),
+            Column("synced_at", "UTC timestamp of the last source synchronization."),
+            Column("active", "true for current source records; false when retired after a source change."),
+            Column("cumulative_addition_g", "Cumulative initiator or other addition mass in grams."),
+            Column("torque_units", "Units parsed from the source torque or power column header."),
+        ),
+    ),
+    SheetSpec(
+        name="Source Sync",
+        columns=(
+            Column("source_key", "Stable source spreadsheet and tab key.", True),
+            Column("source_spreadsheet_id", "Google spreadsheet ID or local workbook identifier."),
+            Column("source_title", "Source workbook title."),
+            Column("source_sheet_name", "Source tab name.", True),
+            Column("source_sheet_id", "Google sheet ID when available."),
+            Column("source_url", "Link to the read-only source notebook."),
+            Column("source_modified_at", "Source modification timestamp when available."),
+            Column("source_range", "Bounded source range read by the adapter."),
+            Column("parser_profile", "Parser profile selected for the source tab."),
+            Column("parser_version", "Version of the parser contract."),
+            Column("source_fingerprint", "SHA-256 fingerprint used for no-op detection.", True),
+            Column("synced_at", "UTC timestamp of the last successful synchronization."),
+            Column("record_count", "Number of active normalized records produced."),
+            Column("status", "synced, unchanged, or needs_review."),
+            Column("warnings_json", "JSON list of parser warnings."),
+        ),
+    ),
+    SheetSpec(
+        name="Plot Studio",
+        columns=(
+            Column("control", "Plot Studio control or helper label."),
+            Column("value", "Selected value or chart data."),
+            Column("notes", "Instructions or helper context."),
+        ),
+    ),
+    SheetSpec(
+        name="Plot Data",
+        columns=(
+            Column("row_type", "Managed block header or plot point.", True),
+            Column("plot_id", "Stable plot definition ID.", True),
+            Column("plot_point_id", "Stable point ID for provenance and QA."),
+            Column("experiment_id", "Experiment represented by this point."),
+            Column("plot_kind", "Temperature, feed rate, charge accuracy, outcome trend, etc."),
+            Column("x_order", "Stable numeric ordering value."),
+            Column("x_value", "Domain value used by the chart."),
+            Column("x_label", "Human-readable domain label."),
+            Column("x_units", "Domain units."),
+            Column("series_1_name", "First series label."),
+            Column("series_1_value", "First numeric series value."),
+            Column("series_1_units", "First series units."),
+            Column("series_2_name", "Second series label."),
+            Column("series_2_value", "Second numeric series value."),
+            Column("series_2_units", "Second series units."),
+            Column("series_3_name", "Third series label."),
+            Column("series_3_value", "Third numeric series value."),
+            Column("series_3_units", "Third series units."),
+            Column("series_4_name", "Fourth series label."),
+            Column("series_4_value", "Fourth numeric series value."),
+            Column("series_4_units", "Fourth series units."),
+            Column("stage", "Process stage."),
+            Column("section", "Process subsection."),
+            Column("source_record_ids", "Comma-separated canonical source record IDs."),
+            Column("source_ranges", "Comma-separated source ranges."),
+            Column("quality_flag", "Observed, planned, estimated, suspect, etc."),
+            Column("recorded_at", "Source or refresh timestamp."),
+            Column("active", "true for current derived plot points."),
+        ),
+    ),
+    SheetSpec(
+        name="Plot Definitions",
+        columns=(
+            Column("plot_id", "Stable managed plot ID.", True),
+            Column("experiment_id", "Experiment scope, or cross_experiment."),
+            Column("plot_kind", "Semantic plot family.", True),
+            Column("title", "Human-readable chart title.", True),
+            Column("chart_type", "LINE or COLUMN.", True),
+            Column("x_axis_title", "Domain-axis title."),
+            Column("y_axis_title", "Value-axis title."),
+            Column("series_1_name", "First series label."),
+            Column("series_1_units", "First series units."),
+            Column("series_2_name", "Second series label."),
+            Column("series_2_units", "Second series units."),
+            Column("series_3_name", "Third series label."),
+            Column("series_3_units", "Third series units."),
+            Column("series_4_name", "Fourth series label."),
+            Column("series_4_units", "Fourth series units."),
+            Column("data_start_row", "One-based Plot Data block-header row."),
+            Column("data_end_row", "One-based final Plot Data point row."),
+            Column("source_point_count", "Number of plotted points."),
+            Column("status", "ready or insufficient_data."),
+            Column("updated_at", "UTC refresh timestamp."),
+            Column("notes", "Plot-generation or interpretation notes."),
+            Column("x_axis_mode", "numeric for elapsed/continuous axes or category for named samples/materials."),
+        ),
+    ),
+    SheetSpec(
+        name="Plot Dashboard",
+        columns=(
+            Column("plot_id", "Stable managed plot ID.", True),
+            Column("title", "Chart title."),
+            Column("experiment_id", "Experiment scope."),
+            Column("plot_kind", "Semantic plot family."),
+            Column("chart_type", "LINE or COLUMN."),
+            Column("point_count", "Number of plotted points."),
+            Column("updated_at", "UTC refresh timestamp."),
+        ),
+    ),
+    SheetSpec(
         name="Process Knowledge",
         columns=(
             Column("process_type", "Process name.", True),
@@ -407,11 +1150,54 @@ SHEETS: tuple[SheetSpec, ...] = (
         )
         + tuple(("reagent_category", value, "Master Reagents category.") for value in REAGENT_CATEGORIES)
         + tuple(("formulation_role", value, "Formulations target role.") for value in FORMULATION_ROLES)
+        + tuple(("batch_stage", value, "Batch Builder stage.") for value in BATCH_STAGES)
+        + tuple(("batch_charge_type", value, "Batch Builder charge type.") for value in BATCH_CHARGE_TYPES)
+        + tuple(("batch_charge_status", value, "Batch Builder charge status.") for value in BATCH_CHARGE_STATUS)
         + tuple(("experiment_status", value, "Experiments status.") for value in EXPERIMENT_STATUS)
         + tuple(("process_stage", value, "Daily Log process stage.") for value in PROCESS_STAGES)
         + tuple(("result_quality_flag", value, "Results quality flag.") for value in RESULT_QUALITY_FLAGS)
         + tuple(("suggestion_status", value, "Agent Suggestions status.") for value in SUGGESTION_STATUS)
-        + tuple(("daily_review_status", value, "Daily Reviews status.") for value in DAILY_REVIEW_STATUS),
+        + tuple(("daily_review_status", value, "Daily Reviews status.") for value in DAILY_REVIEW_STATUS)
+        + tuple(
+            ("project_record_type", value, "Imported Project Notebook Records type.")
+            for value in PROJECT_RECORD_TYPES
+        )
+        + tuple(
+            ("source_sync_status", value, "Source Sync status.")
+            for value in SOURCE_SYNC_STATUS
+        )
+        + tuple(
+            ("plot_row_type", value, "Managed Plot Data row type.")
+            for value in PLOT_ROW_TYPES
+        )
+        + tuple(("plot_type", value, "Managed plot chart type.") for value in PLOT_TYPES)
+        + tuple(("plot_status", value, "Managed plot status.") for value in PLOT_STATUS)
+        + tuple(
+            ("plot_x_axis_mode", value, "Managed plot domain interpretation.")
+            for value in PLOT_X_AXIS_MODES
+        )
+        + tuple(("run_step_status", value, "Run Capture Plan step status.") for value in RUN_STEP_STATUS)
+        + tuple(("sample_status", value, "Sample lifecycle status.") for value in SAMPLE_STATUS)
+        + tuple(
+            ("calibration_status", value, "Equipment calibration state.")
+            for value in CALIBRATION_STATUS
+        )
+        + tuple(("protocol_status", value, "Protocol lifecycle status.") for value in PROTOCOL_STATUS)
+        + tuple(
+            ("specification_status", value, "Specification lifecycle status.")
+            for value in SPECIFICATION_STATUS
+        )
+        + tuple(("qc_status", value, "Result assessment against a specification.") for value in QC_STATUS)
+        + tuple(("deviation_status", value, "Deviation workflow status.") for value in DEVIATION_STATUS)
+        + tuple(
+            ("raw_file_parser_status", value, "Raw data ingest or parser state.")
+            for value in RAW_FILE_PARSER_STATUS
+        )
+        + tuple(("audit_action", value, "Audit trail action.") for value in AUDIT_ACTIONS)
+        + tuple(("inventory_status", value, "Reagent inventory state.") for value in INVENTORY_STATUS)
+        + tuple(("notebook_section_type", value, "Notebook section type.") for value in NOTEBOOK_SECTION_TYPES)
+        + tuple(("notebook_section_status", value, "Notebook section completion state.") for value in NOTEBOOK_SECTION_STATUS)
+        + tuple(("reaction_outcome_status", value, "Reaction outcome review state.") for value in REACTION_OUTCOME_STATUS),
     ),
     SheetSpec(
         name="Agent Config",
@@ -432,7 +1218,602 @@ SHEETS: tuple[SheetSpec, ...] = (
             ("safety_review_required", "true", "Agent suggestions do not replace SDS, SOP, or PI review."),
         ),
     ),
+    SheetSpec(
+        name="Workbook Metadata",
+        columns=(
+            Column("key", "Stable workbook metadata key.", True),
+            Column("value", "Metadata value."),
+            Column("updated_at", "Timestamp of the last metadata update."),
+            Column("notes", "Meaning or migration context."),
+        ),
+        example_rows=(
+            ("contract_name", "lab-notebook-agent-workbook", "", "Machine-readable workbook contract."),
+            ("contract_version", WORKBOOK_CONTRACT_VERSION, "", "Schema version currently applied to this workbook."),
+            ("workbook_timezone", "America/Chicago", "", "Timezone used for local laboratory timestamps."),
+            ("migration_status", "current", "", "Set by a successful contract migration."),
+        ),
+    ),
+    SheetSpec(
+        name="Run Capture Plan",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("step_id", "Stable step ID within the experiment.", True),
+            Column("sequence", "Execution order.", True),
+            Column("stage", "Setup, seed, feed, hold, workup, test, or cleanup."),
+            Column("planned_time_min", "Planned elapsed start time in minutes."),
+            Column("action", "Operator action or checkpoint.", True),
+            Column("parameter", "Controlled parameter or observation name."),
+            Column("target_value", "Planned parameter value."),
+            Column("units", "Units for target and limits."),
+            Column("lower_limit", "Lower acceptable operating limit."),
+            Column("upper_limit", "Upper acceptable operating limit."),
+            Column("required", "true when the step cannot be skipped."),
+            Column("status", "planned, ready, in_progress, complete, skipped, or blocked."),
+            Column("actual_time_min", "Actual elapsed completion time in minutes."),
+            Column("completed_by", "Operator who completed the step."),
+            Column("completed_at", "Step completion timestamp."),
+            Column("deviation_id", "Linked deviation if the step differed from plan."),
+            Column("notes", "Execution notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Samples",
+        columns=(
+            Column("sample_id", "Stable sample or aliquot ID.", True),
+            Column("experiment_id", "Experiment that produced the sample.", True),
+            Column("parent_sample_id", "Parent sample for an aliquot or derivative."),
+            Column("collected_at", "Sample collection timestamp."),
+            Column("stage", "Process stage at collection."),
+            Column("sample_type", "Latex, serum, residual, film, coupon, or other type."),
+            Column("amount", "Collected amount."),
+            Column("units", "Units for amount."),
+            Column("storage_location", "Physical storage location."),
+            Column("status", "collected, stored, consumed, disposed, or missing."),
+            Column("raw_data_url", "Link to related raw data or folder."),
+            Column("notes", "Sample handling and condition notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Equipment",
+        columns=(
+            Column("equipment_id", "Stable equipment or instrument ID.", True),
+            Column("name", "Human-readable equipment name.", True),
+            Column("manufacturer", "Equipment manufacturer."),
+            Column("model", "Manufacturer model."),
+            Column("serial_number", "Serial number."),
+            Column("location", "Lab and physical location."),
+            Column("calibration_status", "current, due_soon, expired, not_required, or unknown."),
+            Column("last_calibration_date", "Date last calibrated or verified."),
+            Column("calibration_due_date", "Next calibration or verification due date."),
+            Column("protocol_id", "Operating or calibration protocol."),
+            Column("notes", "Equipment condition or usage notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Protocols",
+        columns=(
+            Column("protocol_id", "Stable protocol or SOP ID.", True),
+            Column("name", "Protocol name.", True),
+            Column("version", "Controlled version.", True),
+            Column("effective_date", "Date this version became effective."),
+            Column("owner", "Protocol owner."),
+            Column("status", "draft, active, or retired."),
+            Column("source_url", "Link to the controlled source document."),
+            Column("change_summary", "Summary of changes from the prior version."),
+            Column("notes", "Additional use notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Specifications",
+        columns=(
+            Column("specification_id", "Stable specification ID.", True),
+            Column("scope_type", "experiment, project, product, sample_type, or method."),
+            Column("scope_id", "ID or label for the specification scope."),
+            Column("measurement_type", "Measurement assessed by this specification.", True),
+            Column("target_value", "Nominal or desired numeric value."),
+            Column("lower_limit", "Lower acceptable result."),
+            Column("upper_limit", "Upper acceptable result."),
+            Column("units", "Units for target and limits."),
+            Column("method", "Required method or condition."),
+            Column("effective_date", "Date the specification became effective."),
+            Column("status", "draft, active, or retired."),
+            Column("notes", "Interpretation and exception notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Deviations",
+        columns=(
+            Column("deviation_id", "Stable deviation ID.", True),
+            Column("experiment_id", "Experiment affected by the deviation.", True),
+            Column("step_id", "Run Capture Plan step affected."),
+            Column("occurred_at", "Deviation timestamp."),
+            Column("category", "Process, material, equipment, method, safety, or data category."),
+            Column("description", "What differed from the approved plan.", True),
+            Column("immediate_action", "Action taken during the run."),
+            Column("impact_assessment", "Potential impact on safety, validity, or quality."),
+            Column("disposition", "Use, repeat, investigate, reject, or other decision."),
+            Column("owner", "Person responsible for follow-up."),
+            Column("status", "open, under_review, or closed."),
+            Column("closed_at", "Closure timestamp."),
+            Column("reviewer", "Person approving the disposition."),
+            Column("notes", "Additional investigation notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Raw Data Files",
+        columns=(
+            Column("raw_file_id", "Stable raw file record ID.", True),
+            Column("experiment_id", "Experiment linked to the file.", True),
+            Column("sample_id", "Sample linked to the file."),
+            Column("measurement_type", "Measurement represented by the file."),
+            Column("instrument_id", "Equipment ID that produced the file."),
+            Column("collected_at", "Acquisition timestamp."),
+            Column("file_name", "Original file name.", True),
+            Column("file_url", "Immutable or controlled Drive link.", True),
+            Column("checksum_sha256", "SHA-256 checksum when available."),
+            Column("method", "Acquisition or parsing method."),
+            Column("parser_status", "unprocessed, parsed, needs_review, or failed."),
+            Column("notes", "File provenance and parser notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Experiment Templates",
+        columns=(
+            Column("template_id", "Stable governed template identifier.", True),
+            Column("name", "Scientist-facing template name.", True),
+            Column("process_type", "Process type this template supports."),
+            Column("version", "Controlled template version.", True),
+            Column("state", "draft, effective, superseded, or withdrawn.", True),
+            Column("owner", "Template owner or steward."),
+            Column("effective_at", "Timestamp this version became effective."),
+            Column("supersedes_version", "Prior version replaced by this version."),
+            Column("required_capture_sections", "Comma-separated required sections or tables."),
+            Column("default_protocol_id", "Protocol automatically associated with new runs."),
+            Column("review_process", "Default review and witnessing route."),
+            Column("source_url", "Controlled template or guidance link."),
+            Column("change_summary", "What changed from the prior version."),
+            Column("notes", "Template usage notes."),
+        ),
+        example_rows=((
+            "TPL-EMULSION", "Emulsion polymerization reaction", "emulsion polymerization",
+            "1.0", "effective", "", "", "", "Batch Builder,Bench Log,Measurements",
+            "", "PI review", "", "Seed template; govern locally before routine use.", "",
+        ),),
+    ),
+    SheetSpec(
+        name="Inventory Transactions",
+        columns=(
+            Column("transaction_id", "Stable append-only material event ID.", True),
+            Column("occurred_at", "When the material event occurred.", True),
+            Column("reagent_id", "Linked Master Reagents ID.", True),
+            Column("experiment_id", "Experiment consuming or producing the material."),
+            Column("charge_id", "Linked Batch Builder charge when applicable."),
+            Column("transaction_type", "consume, add, adjust, transfer, or dispose.", True),
+            Column("quantity", "Signed event quantity; use positive values with transaction type."),
+            Column("units", "Quantity units."),
+            Column("from_location", "Source location or container."),
+            Column("to_location", "Destination location or container."),
+            Column("lot", "Material lot or batch."),
+            Column("performed_by", "Person recording the event."),
+            Column("balance_after", "Verified stock balance after the event when available."),
+            Column("source", "Manual entry, Batch Builder, import, or instrument source."),
+            Column("notes", "Consumption, adjustment, or transfer context."),
+        ),
+    ),
+    SheetSpec(
+        name="Notebook Sections",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("section_id", "Stable section ID within the experiment.", True),
+            Column("sequence", "Display and execution order."),
+            Column("section_type", "Objective, safety, setup, procedure, observations, workup, results, or conclusion.", True),
+            Column("title", "Scientist-facing section title.", True),
+            Column("required", "true when this section must be completed before closeout.", True),
+            Column("status", "planned, in_progress, complete, or not_applicable.", True),
+            Column("content", "Narrative, instruction, observation, or interpretation."),
+            Column("attachment_url", "Link to a photo, drawing, file, or supporting folder."),
+            Column("authored_by", "Person who authored or last revised the section."),
+            Column("authored_at", "Timestamp of the authored revision."),
+            Column("completed_by", "Person who completed the section."),
+            Column("completed_at", "Section completion timestamp."),
+            Column("notes", "Review, exception, or migration notes."),
+        ),
+        example_rows=(
+            ("EP-001", "EP-001-SEC-001", 1, "objective", "Objective and hypothesis", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-002", 2, "safety", "Hazards and controls", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-003", 3, "setup", "Equipment and setup", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-004", 4, "procedure", "Procedure and operating limits", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-005", 5, "observations", "Contemporaneous observations", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-006", 6, "workup", "Workup and isolation", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-007", 7, "results", "Results and characterization", "true", "planned", "", "", "", "", "", "", ""),
+            ("EP-001", "EP-001-SEC-008", 8, "conclusion", "Conclusion and next step", "true", "planned", "", "", "", "", "", "", ""),
+        ),
+    ),
+    SheetSpec(
+        name="Reaction Outcomes",
+        columns=(
+            Column("experiment_id", "Experiment ID linked to Experiments.", True),
+            Column("product_sample_id", "Linked product sample or batch identifier."),
+            Column("product_name", "Product name or reaction product label.", True),
+            Column("theoretical_product_mass_g", "Calculated or verified theoretical product mass in grams."),
+            Column("recovered_product_mass_g", "Isolated or recovered product mass in grams."),
+            Column("isolated_yield_percent", "Calculated recovered product divided by theoretical product mass."),
+            Column("sampled_mass_g", "Mass removed as retained samples and not included in recovered product."),
+            Column("waste_mass_g", "Measured discarded, filtered, or unusable mass."),
+            Column("process_loss_mass_g", "Measured transfer, vessel, or handling loss."),
+            Column("expected_nonproduct_loss_g", "Known volatile, wash, vent, or stoichiometric loss included in closure."),
+            Column("balance_tolerance_percent", "Allowed absolute unaccounted mass as percent of actual input mass."),
+            Column("actual_input_mass_g", "Calculated sum of effective actual Batch Builder charge mass."),
+            Column("accounted_mass_g", "Calculated product, sample, waste, process-loss, and expected-loss total."),
+            Column("unaccounted_mass_g", "Calculated actual input minus accounted mass."),
+            Column("material_balance_closure_percent", "Calculated accounted mass divided by actual input mass."),
+            Column("purity_percent", "Measured or estimated product purity percent."),
+            Column("appearance", "Color, phase, texture, clarity, or other product appearance."),
+            Column("product_lot", "Stable product lot or batch identifier."),
+            Column("outcome_status", "draft, complete, or needs_review.", True),
+            Column("mass_balance_status", "Calculated closure readiness and tolerance result."),
+            Column("completed_by", "Scientist finalizing the reaction outcome."),
+            Column("completed_at", "Outcome completion timestamp."),
+            Column("conclusion", "Concise result, interpretation, and recommended next step."),
+        ),
+        example_rows=((
+            "EP-001", "EP-001-PRODUCT", "Reaction product", "", "", "", "", "",
+            "", "", 5, "", "", "", "", "", "", "", "draft", "", "", "", "",
+        ),),
+    ),
+    SheetSpec(
+        name="Equipment Bookings",
+        columns=(
+            Column("booking_id", "Stable equipment booking ID.", True),
+            Column("equipment_id", "Linked Equipment ID.", True),
+            Column("experiment_id", "Experiment using the equipment."),
+            Column("event_type", "usage, calibration, maintenance, or other.", True),
+            Column("title", "Short booking purpose.", True),
+            Column("starts_at", "Booking start timestamp.", True),
+            Column("ends_at", "Booking end timestamp.", True),
+            Column("assigned_to", "Responsible scientist or technician."),
+            Column("status", "planned, confirmed, complete, or cancelled."),
+            Column("reminder_at", "Optional reminder timestamp."),
+            Column("notes", "Preparation, calibration, or maintenance notes."),
+        ),
+    ),
+    SheetSpec(
+        name="Record Signatures",
+        columns=(
+            Column("signature_id", "Stable signature event ID.", True),
+            Column("experiment_id", "Experiment record being signed.", True),
+            Column("signature_type", "author_signoff or reviewer_approval.", True),
+            Column("signer", "Person applying the signature.", True),
+            Column("signed_at", "Signature timestamp.", True),
+            Column("meaning", "Meaning of the signature or approval."),
+            Column("record_fingerprint", "Fingerprint of the reviewed record at signoff."),
+            Column("status", "draft, signed, revoked, or superseded.", True),
+            Column("witnessed_by", "Independent witness when required."),
+            Column("witnessed_at", "Witness timestamp."),
+            Column("witness_meaning", "Meaning of the witness confirmation."),
+            Column("supersedes_signature_id", "Prior signature replaced by this event."),
+            Column("reason", "Reason for revocation, supersession, or correction."),
+            Column("notes", "Additional signoff context."),
+        ),
+    ),
+    SheetSpec(
+        name="Audit Log",
+        columns=(
+            Column("audit_id", "Stable audit event ID.", True),
+            Column("occurred_at", "Audit event timestamp.", True),
+            Column("actor", "Person or agent responsible for the action."),
+            Column("action", "create, update, correct, delete, import, or migrate.", True),
+            Column("sheet_name", "Affected sheet."),
+            Column("row_key", "Stable key of the affected row."),
+            Column("field_name", "Affected field when applicable."),
+            Column("old_value", "Value before the change."),
+            Column("new_value", "Value after the change."),
+            Column("reason", "Reason for the action or correction."),
+            Column("source", "CLI command, manual edit, import, or migration source."),
+            Column("notes", "Additional audit context."),
+        ),
+    ),
 )
+
+RUN_CONSOLE_SHEET = "Run Console"
+
+NUMBER_COLUMNS: dict[str, frozenset[str]] = {
+    "Reaction Master": frozenset(
+        {
+            "Planned mass (g)",
+            "Actual mass (g)",
+            "Mass variance (g)",
+            "Charges recorded",
+            "Bench entries",
+            "Measurements",
+            "Target batch mass (g)",
+            "Planned vs target (g)",
+            "Actual vs target (g)",
+            "Mass completion (%)",
+            "Out-of-tolerance charges",
+            "Calculation issues",
+            "Target equivalent ratio",
+            "Planned numerator eq",
+            "Planned denominator eq",
+            "Planned equivalent ratio",
+            "Actual numerator eq",
+            "Actual denominator eq",
+            "Actual equivalent ratio",
+            "Material transactions",
+        }
+    ),
+    "Master Reagents": frozenset(
+        {
+            "molecular_weight_g_mol",
+            "density_g_mL",
+            "purity_fraction",
+            "concentration",
+            "functional_equivalent_weight_g_eq",
+            "nominal_functionality",
+        }
+    ),
+    "Daily Log": frozenset(
+        {
+            "temperature_C",
+            "rpm",
+            "pH",
+            "solids_percent",
+            "particle_size_nm",
+            "conversion_percent",
+            "viscosity_cP",
+            "residual_monomer_percent",
+            "polydispersity_index",
+            "Tg_C",
+            "hold_time_min",
+        }
+    ),
+    "Formulations": frozenset(
+        {
+            "mass_g",
+            "volume_mL",
+            "moles_mmol",
+            "concentration",
+            "wt_percent",
+            "feed_order",
+            "feed_start_min",
+            "feed_duration_min",
+            "actual_mass_g",
+            "mass_variance_g",
+            "actual_volume_mL",
+        }
+    ),
+    "Batch Builder": frozenset(
+        {
+            "feed_order",
+            "parts_per_hundred_monomer",
+            "stage_monomer_basis_g",
+            "direct_mass_g",
+            "planned_mass_g",
+            "stock_active_fraction",
+            "active_mass_g",
+            "density_override_g_mL",
+            "density_g_mL",
+            "planned_volume_mL",
+            "actual_mass_g",
+            "mass_variance_g",
+            "actual_volume_mL",
+            "feed_start_min",
+            "feed_duration_min",
+            "feed_rate_mL_min",
+            "target_temperature_C",
+            "molecular_weight_g_mol",
+            "planned_moles_mmol",
+            "equivalent_basis_mmol",
+            "equivalents",
+            "actual_moles_mmol",
+            "recipe_wt_percent",
+            "experiment_target_mass_g",
+            "target_active_mass_g",
+            "target_equivalents",
+            "mass_tolerance_percent",
+            "experiment_default_tolerance_percent",
+            "mass_variance_percent",
+            "functional_equivalent_weight_g_eq",
+            "target_functional_equivalents",
+            "planned_functional_equivalents",
+            "actual_functional_equivalents",
+            "source_container_before_g",
+            "source_container_after_g",
+            "actual_mass_from_difference_g",
+            "effective_actual_mass_g",
+            "planned_carrier_mass_g",
+            "actual_carrier_mass_g",
+        }
+    ),
+    "Experiments": frozenset(
+        {
+            "target_batch_mass_g",
+            "default_mass_tolerance_percent",
+            "target_equivalent_ratio",
+            "equivalent_ratio_tolerance_percent",
+        }
+    ),
+    "Bench Log": frozenset(
+        {
+            "Temperature (°C)",
+            "RPM",
+            "pH",
+            "Solids (%)",
+            "Particle size (nm)",
+            "Conversion (%)",
+            "Viscosity (cP)",
+            "Pressure (psi)",
+            "Jacket / oil temperature (°C)",
+            "Torque / power (W)",
+            "Cumulative addition (g)",
+            "Recovered mass (g)",
+        }
+    ),
+    "Measurements": frozenset({"Numeric value", "Uncertainty"}),
+    "Results": frozenset(
+        {
+            "replicate",
+            "numeric_value",
+            "uncertainty",
+            "detection_limit",
+        }
+    ),
+    "Literature Evidence": frozenset({"year"}),
+    "Daily Reviews": frozenset(
+        {
+            "experiment_count",
+            "observation_count",
+            "result_count",
+            "normalized_result_rows_to_append",
+            "evidence_rows_to_append",
+            "suggestion_rows_to_append",
+            "preflight_fail_count",
+            "preflight_warn_count",
+            "apply_request_count",
+        }
+    ),
+    "Project Notebook Records": frozenset(
+        {
+            "planned_value",
+            "actual_value",
+            "parts_per_hundred_monomer",
+            "mass_g",
+            "actual_mass_g",
+            "mass_variance_g",
+            "volume_mL",
+            "density_g_mL",
+            "concentration",
+            "elapsed_start_min",
+            "elapsed_end_min",
+            "feed_rate_mL_min",
+            "cumulative_percent",
+            "radical_flux_mol_min_L",
+            "particle_size_nm",
+            "temperature_C",
+            "rpm",
+            "oil_temperature_C",
+            "torque",
+            "cumulative_addition_g",
+        }
+    ),
+    "Source Sync": frozenset({"source_sheet_id", "record_count"}),
+    "Plot Data": frozenset(
+        {
+            "x_order",
+            "x_value",
+            "series_1_value",
+            "series_2_value",
+            "series_3_value",
+            "series_4_value",
+        }
+    ),
+    "Plot Definitions": frozenset(
+        {
+            "data_start_row",
+            "data_end_row",
+            "source_point_count",
+        }
+    ),
+    "Plot Dashboard": frozenset({"point_count"}),
+    "Run Capture Plan": frozenset(
+        {
+            "sequence",
+            "planned_time_min",
+            "target_value",
+            "lower_limit",
+            "upper_limit",
+            "actual_time_min",
+        }
+    ),
+    "Samples": frozenset({"amount"}),
+    "Specifications": frozenset({"target_value", "lower_limit", "upper_limit"}),
+    "Inventory Transactions": frozenset({"quantity", "balance_after"}),
+    "Notebook Sections": frozenset({"sequence"}),
+    "Reaction Outcomes": frozenset(
+        {
+            "theoretical_product_mass_g",
+            "recovered_product_mass_g",
+            "isolated_yield_percent",
+            "sampled_mass_g",
+            "waste_mass_g",
+            "process_loss_mass_g",
+            "expected_nonproduct_loss_g",
+            "balance_tolerance_percent",
+            "actual_input_mass_g",
+            "accounted_mass_g",
+            "unaccounted_mass_g",
+            "material_balance_closure_percent",
+            "purity_percent",
+        }
+    ),
+}
+
+DATE_COLUMNS: dict[str, frozenset[str]] = {
+    "Master Reagents": frozenset({"expiration_date"}),
+    "Experiments": frozenset({"date"}),
+    "Daily Reviews": frozenset({"review_date"}),
+    "Equipment": frozenset({"last_calibration_date", "calibration_due_date"}),
+    "Protocols": frozenset({"effective_date"}),
+    "Specifications": frozenset({"effective_date"}),
+}
+
+DATETIME_COLUMNS: dict[str, frozenset[str]] = {
+    "Reaction Master": frozenset({"Last activity", "Reviewed at", "Signed at", "Witnessed at"}),
+    "Experiments": frozenset(
+        {
+            "source_modified_at",
+            "started_at",
+            "completed_at",
+            "reviewed_at",
+        }
+    ),
+    "Daily Log": frozenset({"timestamp"}),
+    "Formulations": frozenset({"recorded_at"}),
+    "Batch Builder": frozenset({"recorded_at"}),
+    "Bench Log": frozenset({"Date & time"}),
+    "Measurements": frozenset({"Measured at"}),
+    "Results": frozenset({"measured_at", "reviewed_at"}),
+    "Agent Suggestions": frozenset({"created_at"}),
+    "Daily Reviews": frozenset({"created_at"}),
+    "Project Notebook Records": frozenset({"source_timestamp", "synced_at"}),
+    "Source Sync": frozenset({"source_modified_at", "synced_at"}),
+    "Plot Data": frozenset({"recorded_at"}),
+    "Plot Definitions": frozenset({"updated_at"}),
+    "Plot Dashboard": frozenset({"updated_at"}),
+    "Workbook Metadata": frozenset({"updated_at"}),
+    "Run Capture Plan": frozenset({"completed_at"}),
+    "Samples": frozenset({"collected_at"}),
+    "Deviations": frozenset({"occurred_at", "closed_at"}),
+    "Raw Data Files": frozenset({"collected_at"}),
+    "Experiment Templates": frozenset({"effective_at"}),
+    "Inventory Transactions": frozenset({"occurred_at"}),
+    "Equipment Bookings": frozenset({"starts_at", "ends_at", "reminder_at"}),
+    "Record Signatures": frozenset({"signed_at", "witnessed_at"}),
+    "Notebook Sections": frozenset({"authored_at", "completed_at"}),
+    "Reaction Outcomes": frozenset({"completed_at"}),
+    "Audit Log": frozenset({"occurred_at"}),
+}
+
+
+def column_data_type(sheet_name: str, column_name: str) -> str:
+    if column_name in NUMBER_COLUMNS.get(sheet_name, ()):
+        return "number"
+    if column_name in DATE_COLUMNS.get(sheet_name, ()):
+        return "date"
+    if column_name in DATETIME_COLUMNS.get(sheet_name, ()):
+        return "datetime"
+    return "text"
+
+
+def column_number_format(sheet_name: str, column_name: str) -> str | None:
+    data_type = column_data_type(sheet_name, column_name)
+    if data_type == "number":
+        return "0.########"
+    if data_type == "date":
+        return "yyyy-mm-dd"
+    if data_type == "datetime":
+        return "yyyy-mm-dd hh:mm:ss"
+    return None
 
 
 def sheet_by_name(name: str) -> SheetSpec:
@@ -445,7 +1826,7 @@ def sheet_by_name(name: str) -> SheetSpec:
 def workbook_contract() -> dict[str, object]:
     return {
         "name": "lab-notebook-agent-workbook",
-        "version": "0.1.0",
+        "version": WORKBOOK_CONTRACT_VERSION,
         "sheets": [
             {
                 "name": sheet.name,
@@ -455,20 +1836,53 @@ def workbook_contract() -> dict[str, object]:
                         "name": column.name,
                         "description": column.description,
                         "required": column.required,
+                        "data_type": column_data_type(sheet.name, column.name),
+                        "number_format": column_number_format(sheet.name, column.name),
                     }
                     for column in sheet.columns
                 ],
             }
             for sheet in SHEETS
         ],
+        "views": [
+            {
+                "name": RUN_CONSOLE_SHEET,
+                "kind": "scientist_run_console",
+                "purpose": (
+                    "Scientist-facing experiment overview, readiness checks, "
+                    "bench workflow, and links into normalized record tables."
+                ),
+                "active_experiment_cell": "B3",
+                "preserve_user_cells": ["B3"],
+                "active_queue_anchor": "A30",
+                "batch_entry_sheet": "Batch Builder",
+                "active_queue_rule": (
+                    "status is planned or running, or status is needs_review "
+                    "and source_notebook_id is blank"
+                ),
+            }
+        ],
         "controlled_vocab": {
             "process_type": list(PROCESS_TYPES),
             "reagent_category": list(REAGENT_CATEGORIES),
             "formulation_role": list(FORMULATION_ROLES),
+            "batch_stage": list(BATCH_STAGES),
+            "batch_charge_type": list(BATCH_CHARGE_TYPES),
+            "batch_charge_status": list(BATCH_CHARGE_STATUS),
             "experiment_status": list(EXPERIMENT_STATUS),
             "process_stage": list(PROCESS_STAGES),
             "result_quality_flag": list(RESULT_QUALITY_FLAGS),
             "suggestion_status": list(SUGGESTION_STATUS),
             "daily_review_status": list(DAILY_REVIEW_STATUS),
+            "run_step_status": list(RUN_STEP_STATUS),
+            "sample_status": list(SAMPLE_STATUS),
+            "calibration_status": list(CALIBRATION_STATUS),
+            "protocol_status": list(PROTOCOL_STATUS),
+            "specification_status": list(SPECIFICATION_STATUS),
+            "qc_status": list(QC_STATUS),
+            "deviation_status": list(DEVIATION_STATUS),
+            "raw_file_parser_status": list(RAW_FILE_PARSER_STATUS),
+            "audit_action": list(AUDIT_ACTIONS),
+            "inventory_status": list(INVENTORY_STATUS),
         },
     }
