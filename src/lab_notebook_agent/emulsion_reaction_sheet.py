@@ -116,11 +116,12 @@ def _carry(
 
 
 def ccsp_52_charges() -> tuple[ReactionCharge, ...]:
-    """Return the non-zero CCSP-52 planning charges with corrected identities.
+    """Return the CCSP-52 planning charges with corrected identities.
 
-    The source workbook contains many zero placeholders and three large time-feed
-    tables. This first deterministic contract keeps only charges that change the
-    batch, while retaining source-cell provenance for every value.
+    The two zero-quantity Seed materials are retained as explicit optional rows so
+    an operator can see and activate them without rebuilding the recipe. Other
+    source placeholders remain omitted. Source-cell provenance is retained for
+    every value.
     """
 
     seed = 0.6
@@ -129,6 +130,8 @@ def ccsp_52_charges() -> tuple[ReactionCharge, ...]:
     return (
         _scaled("Seed", "Pre-reactor", "DI Water", "water", "D3", 180, seed, 1.0, allocation=0.85),
         _scaled("Seed", "Pre-reactor", "Butyl Acrylate", "monomer", "D4", 99.7, seed, 0.89, allocation=0.10, mw=128.17, polymer=True, nonvolatile=True),
+        _scaled("Seed", "Pre-reactor", "Solketal Acrylate", "optional monomer", "D5", 0, seed, 1.03, polymer=True, nonvolatile=True, note="Optional; set PHR above zero to activate."),
+        _scaled("Seed", "Pre-reactor", "Sodium Acetate Buffer", "optional buffer", "D6", 0, seed, 1.0, nonvolatile=True, note="Optional; set PHR above zero to activate."),
         _scaled("Seed", "Pre-reactor", "Dowfax 2A1", "surfactant", "D7", 1, seed, 1.0, nonvolatile=True, note="Source treats solution as 100% active; verify product actives."),
         _scaled("Seed", "Monomer pre-emulsion", "Butyl Acrylate", "monomer", "D8", 99.7, seed, 0.89, allocation=0.90, mw=128.17, polymer=True, nonvolatile=True),
         _scaled("Seed", "Monomer pre-emulsion", "1,4-Butanediol Dimethacrylate", "crosslinker", "D9", 0.1, seed, 1.051, mw=198.26, polymer=True, nonvolatile=True),
@@ -1389,8 +1392,173 @@ def _save_ccsp_reaction_workbook_simple(output: str | Path) -> Path:
     return output
 
 
+def _add_seed_stage_sheet(
+    workbook: Workbook,
+    charges: tuple[ReactionCharge, ...],
+) -> dict[tuple[str, str], int]:
+    """Add the compact Seed-stage recipe and return its material row map."""
+
+    seed = workbook.create_sheet("Seed Stage", 0)
+    navy = "1F4E78"
+    header_blue = "5B9BD5"
+    input_yellow = PatternFill("solid", fgColor="FFF2CC")
+    output_green = PatternFill("solid", fgColor="E2F0D9")
+    optional_gray = PatternFill("solid", fgColor="E7E6E6")
+    group_colors = {
+        "Pre-reactor": "DDEBF7",
+        "Monomer pre-emulsion": "FCE4D6",
+        "Aqueous pre-emulsion": "E2F0D9",
+        "Redox shot": "E4DFEC",
+        "Redox feed": "FFF2CC",
+        "Chase": "D9EAD3",
+    }
+
+    seed.merge_cells("A1:H1")
+    seed["A1"] = "SEED STAGE"
+    seed["A1"].fill = PatternFill("solid", fgColor=navy)
+    seed["A1"].font = Font(name="Arial", size=18, bold=True, color="FFFFFF")
+    seed["A1"].alignment = Alignment(vertical="center")
+    seed.row_dimensions[1].height = 30
+    seed.merge_cells("A2:H2")
+    seed["A2"] = "Set the recipe, weigh the materials, and record what was actually charged. OFF rows remain visible for optional materials."
+    seed["A2"].font = Font(name="Arial", size=10, italic=True, color="44546A")
+    seed["A2"].alignment = Alignment(wrap_text=True, vertical="center")
+    seed.row_dimensions[2].height = 28
+
+    setup = (
+        ("A3", "Seed factor", "B3", 0.6, "0.000"),
+        ("C3", "Oil bath (°C)", "D3", 60.0, "0.0"),
+        ("E3", "Initial monomer", "F3", 0.10, "0%"),
+        ("G3", "Feed monomer", "H3", 0.90, "0%"),
+        ("A4", "Initial water", "B4", 0.85, "0%"),
+        ("C4", "Feed water", "D4", 0.15, "0%"),
+        ("E4", "Target mass (g)", "F4", "=SUM(E7:E22)", "0.00"),
+        ("G4", "Target volume (mL)", "H4", "=SUM(F7:F22)", "0.00"),
+    )
+    for label_cell, label, value_cell, value, number_format in setup:
+        seed[label_cell] = label
+        seed[label_cell].font = Font(name="Arial", size=9, bold=True, color="44546A")
+        seed[value_cell] = value
+        seed[value_cell].number_format = number_format
+        calculated = value_cell in {"F4", "H4"}
+        seed[value_cell].fill = output_green if calculated else input_yellow
+        seed[value_cell].protection = Protection(locked=calculated)
+        seed[value_cell].alignment = Alignment(vertical="center")
+    seed.row_dimensions[3].height = 24
+    seed.row_dimensions[4].height = 24
+
+    headers = (
+        "Status", "Addition", "Material", "PHR", "Target mass (g)",
+        "Target volume (mL)", "Actual mass (g)", "Notes",
+    )
+    for column, value in enumerate(headers, start=1):
+        cell = seed.cell(6, column, value)
+        cell.fill = PatternFill("solid", fgColor=header_blue)
+        cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    seed.row_dimensions[6].height = 32
+
+    seed_charges = [charge for charge in charges if charge.stage == "Seed"]
+    row_map: dict[tuple[str, str], int] = {}
+    prior_addition = ""
+    for row_number, charge in enumerate(seed_charges, start=7):
+        row_map[(charge.addition, charge.material)] = row_number
+        seed.cell(row_number, 1, f'=IF(D{row_number}>0,"ON","OFF")')
+        seed.cell(row_number, 2, charge.addition if charge.addition != prior_addition else "")
+        seed.cell(row_number, 3, charge.material)
+        seed.cell(row_number, 4, charge.phr)
+        seed.cell(row_number, 5, f'=D{row_number}*$B$3*J{row_number}')
+        seed.cell(row_number, 6, f'=IFERROR(E{row_number}/I{row_number},0)')
+        seed.cell(row_number, 7, "")
+        seed.cell(row_number, 8, charge.note)
+        seed.cell(row_number, 9, charge.density_g_ml)
+        if charge.addition == "Pre-reactor" and charge.material == "DI Water":
+            allocation = "=$B$4"
+        elif charge.addition == "Pre-reactor" and charge.material == "Butyl Acrylate":
+            allocation = "=$F$3"
+        elif charge.addition == "Monomer pre-emulsion" and charge.material == "Butyl Acrylate":
+            allocation = "=$H$3"
+        elif charge.addition == "Aqueous pre-emulsion" and charge.material == "DI Water":
+            allocation = "=$D$4"
+        else:
+            allocation = 1.0
+        seed.cell(row_number, 10, allocation)
+        seed.cell(row_number, 11, f"{SOURCE_SHEET}!{charge.source_cell}")
+
+        seed.cell(row_number, 1).fill = output_green if (charge.phr or 0) > 0 else optional_gray
+        seed.cell(row_number, 2).fill = PatternFill("solid", fgColor=group_colors[charge.addition])
+        for column in (4, 7, 8):
+            seed.cell(row_number, column).fill = input_yellow
+            seed.cell(row_number, column).protection = Protection(locked=False)
+        seed.cell(row_number, 9).protection = Protection(locked=False)
+        for column in (5, 6):
+            seed.cell(row_number, column).fill = output_green
+        for column in range(1, 12):
+            seed.cell(row_number, column).alignment = Alignment(
+                wrap_text=column in (2, 3, 8), vertical="center"
+            )
+        for column in (4, 5, 6, 7, 9):
+            seed.cell(row_number, column).number_format = "0.000"
+        seed.cell(row_number, 10).number_format = "0%"
+        seed.row_dimensions[row_number].height = 27
+        prior_addition = charge.addition
+
+    seed_end = 6 + len(seed_charges)
+    seed.auto_filter.ref = f"A6:H{seed_end}"
+    seed.freeze_panes = "D7"
+    seed.column_dimensions["A"].width = 10
+    seed.column_dimensions["B"].width = 24
+    seed.column_dimensions["C"].width = 31
+    seed.column_dimensions["D"].width = 10
+    seed.column_dimensions["E"].width = 17
+    seed.column_dimensions["F"].width = 18
+    seed.column_dimensions["G"].width = 17
+    seed.column_dimensions["H"].width = 35
+    for column in ("I", "J", "K"):
+        seed.column_dimensions[column].hidden = True
+
+    nonnegative = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
+    nonnegative.error = "Enter zero or a positive number."
+    nonnegative.errorStyle = "stop"
+    nonnegative.showErrorMessage = True
+    fraction = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=False)
+    fraction.error = "Enter a fraction from 0% through 100%."
+    fraction.errorStyle = "stop"
+    fraction.showErrorMessage = True
+    positive = DataValidation(type="decimal", operator="greaterThan", formula1="0", allow_blank=False)
+    positive.error = "Enter a number greater than zero."
+    positive.errorStyle = "stop"
+    positive.showErrorMessage = True
+    temperature = DataValidation(type="decimal", operator="between", formula1="0", formula2="250", allow_blank=False)
+    for validation, targets in (
+        (nonnegative, (f"D7:D{seed_end}", f"G7:G{seed_end}")),
+        (fraction, ("F3", "H3", "B4", "D4")),
+        (positive, ("B3", f"I7:I{seed_end}")),
+        (temperature, ("D3",)),
+    ):
+        seed.add_data_validation(validation)
+        for target in targets:
+            validation.add(target)
+
+    seed.conditional_formatting.add(
+        f"A7:H{seed_end}",
+        FormulaRule(formula=['=$A7="OFF"'], fill=optional_gray),
+    )
+    seed.sheet_view.showGridLines = False
+    seed.sheet_properties.pageSetUpPr.fitToPage = True
+    seed.page_setup.orientation = "landscape"
+    seed.page_setup.fitToWidth = 1
+    seed.page_setup.fitToHeight = 1
+    seed.page_margins.left = 0.25
+    seed.page_margins.right = 0.25
+    seed.protection.sheet = True
+    seed.protection.autoFilter = False
+    seed.protection.sort = False
+    return row_map
+
+
 def save_ccsp_reaction_workbook(output: str | Path) -> Path:
-    """Save the guarded four-view CCSP reaction-planning workbook."""
+    """Save the guarded Seed-first CCSP reaction-planning workbook."""
 
     output = _save_ccsp_reaction_workbook_simple(output)
     workbook = load_workbook(output)
@@ -1406,6 +1574,8 @@ def save_ccsp_reaction_workbook(output: str | Path) -> Path:
     recipe_end = reaction.max_row
     feed_start = 6
     feed_end = feeds.max_row
+
+    seed_rows = _add_seed_stage_sheet(workbook, ccsp_52_charges())
 
     # Compact run setup occupies the two existing pre-table rows.
     setup = (
@@ -1448,6 +1618,25 @@ def save_ccsp_reaction_workbook(output: str | Path) -> Path:
             carry_cell.protection = Protection(locked=False)
         for column in (9, 10):
             reaction.cell(row_number, column).protection = Protection(locked=True)
+
+    # Seed Stage is the single editable source for Seed recipe quantities. Keep
+    # the normalized Reaction Plan linked for checks and downstream consumers.
+    for row_number in range(recipe_start, recipe_end + 1):
+        if reaction.cell(row_number, 1).value != "Seed":
+            continue
+        key = (reaction.cell(row_number, 2).value, reaction.cell(row_number, 3).value)
+        seed_row = seed_rows[key]
+        links = {
+            4: f"='Seed Stage'!D{seed_row}",
+            5: "='Seed Stage'!$B$3",
+            6: f"='Seed Stage'!J{seed_row}",
+            8: f"='Seed Stage'!I{seed_row}",
+        }
+        for column, formula in links.items():
+            cell = reaction.cell(row_number, column)
+            cell.value = formula
+            cell.fill = output_green
+            cell.protection = Protection(locked=True)
 
     nonnegative = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
     nonnegative.error = "Enter zero or a positive number."
@@ -1621,6 +1810,7 @@ def save_ccsp_reaction_workbook(output: str | Path) -> Path:
         sheet.page_setup.fitToWidth = 1
         sheet.page_setup.fitToHeight = 1
     reaction.freeze_panes = "D6"
+    reaction.sheet_state = "hidden"
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
     workbook.calculation.calcMode = "auto"

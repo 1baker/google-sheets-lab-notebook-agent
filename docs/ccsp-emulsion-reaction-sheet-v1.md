@@ -6,14 +6,18 @@ The first reaction sheet is a deterministic planning calculator based on the
 current `CCSP-52` tab of the shared **CCSP Emulsion Polymerization** workbook.
 It is intentionally not another full electronic lab notebook.
 
-The interface is reduced to four focused views so the working recipe and feed
+The interface is reduced to five focused views so the working recipe and feed
 rates are not buried under chemistry metadata or audit prose:
 
-1. `Reaction Plan` — the bench-facing charge plan and primary editable inputs.
-2. `Feed Schedule` — editable interval endpoints and distributions with
+1. `Seed Stage` — the compact Seed setup, grouped material list, target
+   quantities, actual-mass entry, and visible optional materials.
+2. `Reaction Plan` — the hidden normalized compatibility plan; Seed values link
+   to the dedicated Seed view so there is only one editable source. It can be
+   unhidden for audit or downstream integration work.
+3. `Feed Schedule` — editable interval endpoints and distributions with
    calculated emulsion, oxidant, and reductant rates in mL/min.
-3. `Checks` — stage mass, volume, polymer solids, and design split.
-4. `Assumptions` — a concise issue register; detailed evidence remains in the
+4. `Checks` — stage mass, volume, polymer solids, and design split.
+5. `Assumptions` — a concise issue register; detailed evidence remains in the
    companion audit JSON and this document.
 
 Yellow cells are validated inputs or controlled properties. Green cells are
@@ -48,8 +52,10 @@ PYTHONPATH=src python3 -m lab_notebook_agent.cli ccsp-reaction-sheet \
   100% stream allocation, scheduled-versus-recipe volume, negative rates,
   setup completeness, open assumptions, and overall release state.
 
-Zero-quantity placeholders are omitted from the main plan. They can be added
-when actually required without changing the calculation rules.
+The two named zero-quantity Seed materials, Solketal Acrylate and Sodium Acetate
+Buffer, remain visible as gray `OFF` rows. Entering a positive PHR activates the
+row and uses the same row-local mass and volume calculation. Other anonymous or
+unused source placeholders remain omitted.
 
 ## Items deferred from v1
 

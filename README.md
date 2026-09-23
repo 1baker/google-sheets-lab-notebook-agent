@@ -4,8 +4,9 @@ This is the first scaffold for a Google Sheets-based daily lab notebook agent.
 
 For the deliberately smaller, formulation-first CCSP emulsion-polymerization
 planner, see [docs/ccsp-emulsion-reaction-sheet-v1.md](docs/ccsp-emulsion-reaction-sheet-v1.md)
-or generate it directly. Its four focused views separate the reaction plan,
-feed schedule, stage checks, and unresolved assumptions. Yellow cells are
+or generate it directly. Its five focused views separate the Seed-stage bench
+entry, feed schedule, stage checks, and unresolved assumptions. A hidden
+normalized plan remains available for compatibility. Yellow cells are
 validated inputs and green cells are protected calculated outputs. The workbook
 stays `NOT RELEASED` until run setup, feed reconciliation, and open assumptions
 all pass:

@@ -90,23 +90,45 @@ class EmulsionReactionSheetTests(unittest.TestCase):
             path = save_ccsp_reaction_workbook(Path(tmpdir) / "ccsp.xlsx")
             workbook = load_workbook(path, data_only=False)
             self.assertEqual(
-                ["Reaction Plan", "Feed Schedule", "Checks", "Assumptions"],
+                ["Seed Stage", "Reaction Plan", "Feed Schedule", "Checks", "Assumptions"],
                 workbook.sheetnames,
             )
 
+            seed = workbook["Seed Stage"]
+            self.assertEqual("Status", seed["A6"].value)
+            self.assertEqual("Actual mass (g)", seed["G6"].value)
+            self.assertEqual("=SUM(E7:E22)", seed["F4"].value)
+            self.assertEqual("D7", seed.freeze_panes)
+            self.assertTrue(seed.protection.sheet)
+            self.assertFalse(seed["D7"].protection.locked)
+            self.assertFalse(seed["G7"].protection.locked)
+            self.assertTrue(seed["E7"].protection.locked)
+            sodium_row = next(
+                row for row in range(7, seed.max_row + 1)
+                if seed.cell(row, 3).value == "Sodium Acetate Buffer"
+            )
+            self.assertEqual(0, seed.cell(sodium_row, 4).value)
+            self.assertEqual(f"=IFERROR(E{sodium_row}/I{sodium_row},0)", seed.cell(sodium_row, 6).value)
+            self.assertEqual(f'=IF(D{sodium_row}>0,"ON","OFF")', seed.cell(sodium_row, 1).value)
+            self.assertTrue(seed.column_dimensions["I"].hidden)
+
             recipe = workbook["Reaction Plan"]
+            self.assertEqual("hidden", recipe.sheet_state)
             self.assertEqual("D6", recipe.freeze_panes)
             self.assertEqual("Stage", recipe["A5"].value)
             self.assertIn("IF", recipe["I6"].value)
             self.assertIn("IFERROR", recipe["J6"].value)
-            self.assertEqual("00FFF2CC", recipe["D6"].fill.fgColor.rgb)
+            self.assertEqual("00E2F0D9", recipe["D6"].fill.fgColor.rgb)
             self.assertEqual("00E2F0D9", recipe["I6"].fill.fgColor.rgb)
             self.assertEqual("Run ID", recipe["A3"].value)
             self.assertEqual("NOT VERIFIED", recipe["H4"].value)
             self.assertEqual("=Checks!$B$24", recipe["J4"].value)
             self.assertTrue(recipe.protection.sheet)
-            self.assertFalse(recipe["D6"].protection.locked)
+            self.assertTrue(recipe["D6"].protection.locked)
             self.assertTrue(recipe["I6"].protection.locked)
+            self.assertEqual("='Seed Stage'!D7", recipe["D6"].value)
+            self.assertEqual("00E2F0D9", recipe["D6"].fill.fgColor.rgb)
+            self.assertTrue(recipe["D6"].protection.locked)
             carry_row = next(
                 row for row in range(6, recipe.max_row + 1)
                 if recipe.cell(row, 3).value == "Core Latex"
