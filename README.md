@@ -7,10 +7,23 @@ generates that workbook, searches curated process knowledge, and drafts a next
 experiment recommendation with copy/paste-ready LitScout commands for literature
 evidence.
 
+## Start with a local workbook
+
+Use Python 3.10+ from a cloned repository root (the folder containing `pyproject.toml`). Google credentials and LitScout are optional later integrations.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m lab_notebook_agent.cli init --output artifacts/lab_notebook_template.xlsx
+```
+
+In plain English: This installs the workbook tool in a project environment and creates a local Excel template. It writes files locally; review the workbook before importing it into Google Sheets.
+
+Open the generated workbook and compare its tabs with [Workbook Tabs](#workbook-tabs). Continue with [Notebook Search](#notebook-search), then the optional [LitScout Bridge](#litscout-bridge). The full command reference below includes examples that write workbooks or contact configured services.
+
 ## Quick Start
 
 ```bash
-cd /home/bak3r/projects/lab-notebook-agent
 PYTHONPATH=src python3 -m lab_notebook_agent.cli init --output artifacts/lab_notebook_template.xlsx
 PYTHONPATH=src python3 -m lab_notebook_agent.cli schema --output artifacts/workbook_contract.json
 PYTHONPATH=src python3 -m lab_notebook_agent.cli search-notebook --workbook artifacts/lab_notebook_template.xlsx "emulsion polymerization surfactant particle size" --output artifacts/notebook-search-emulsion.json
